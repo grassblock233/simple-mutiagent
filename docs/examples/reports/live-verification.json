@@ -1,0 +1,80 @@
+{
+  "date": "2026-10-14T10:51:30.893Z",
+  "backend": "DeepSeek Flash official endpoint; actual local processes and HTTP APIs",
+  "isolation": "deferred",
+  "results": [
+    {
+      "name": "repairable-confirm",
+      "conclusion": "passed",
+      "applicationStatus": "undone",
+      "approvals": 1,
+      "modelCalls": 11,
+      "readPaths": [
+        "src/math.mjs",
+        "src/math.test.mjs"
+      ],
+      "commandStatuses": [
+        "passed"
+      ],
+      "rounds": 1
+    },
+    {
+      "name": "repairable-automatic",
+      "conclusion": "passed",
+      "applicationStatus": "undone",
+      "approvals": 2,
+      "modelCalls": 12,
+      "readPaths": [
+        "src/math.mjs",
+        "src/math.test.mjs"
+      ],
+      "commandStatuses": [
+        "passed",
+        "passed"
+      ],
+      "rounds": 1
+    },
+    {
+      "name": "review-only",
+      "conclusion": "passed",
+      "applicationStatus": "not_applied",
+      "approvals": 1,
+      "modelCalls": 3,
+      "readPaths": [
+        "src/math.mjs",
+        "src/math.test.mjs"
+      ],
+      "commandStatuses": [
+        "passed"
+      ],
+      "rounds": 0
+    },
+    {
+      "name": "reject-validation",
+      "conclusion": "validation_incomplete",
+      "applicationStatus": "not_applied",
+      "approvals": 1,
+      "modelCalls": 11,
+      "readPaths": [
+        "src/math.mjs",
+        "src/math.test.mjs"
+      ],
+      "commandStatuses": [
+        "rejected"
+      ],
+      "rounds": 1
+    },
+    {
+      "name": "round-limit",
+      "conclusion": "issues_remaining",
+      "applicationStatus": "undone",
+      "approvals": 0,
+      "modelCalls": 10,
+      "readPaths": [
+        "src/provider.mjs"
+      ],
+      "commandStatuses": [],
+      "rounds": 1
+    }
+  ]
+}

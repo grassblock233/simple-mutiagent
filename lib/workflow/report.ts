@@ -1,0 +1,94 @@
+import { type RunState } from "./schema";
+
+export const conclusions = {
+  passed: "通过",
+  issues_remaining: "仍有问题",
+  validation_incomplete: "验证未完成",
+  execution_failed: "执行失败",
+  cancelled: "已取消",
+};
+export const statuses = {
+  pending: "待运行",
+  running: "运行中",
+  awaiting_approval: "等待审核",
+  finalizing: "正在整理与检查差异",
+  awaiting_confirmation: "等待文件确认",
+  completed: "完成",
+  failed: "失败",
+  cancelled: "已取消",
+  interrupted: "已中断",
+};
+export const applicationStatuses = { not_applied: "未应用", awaiting_confirmation: "等待确认", applied: "已应用", apply_failed: "应用失败", undone: "已撤销" };
+export function markdownReport(state: RunState) {
+  const real = state.mode === "real";
+  const usage = state.usage ?? [];
+  const known = usage.length > 0 && usage.every(u => u.cacheHitTokens !== null && u.cacheMissTokens !== null && u.completionTokens !== null && !u.uncertain);
+  const low = known ? usage.reduce((n, u) => n + (u.cacheHitTokens! * 0.02 + u.cacheMissTokens! + u.completionTokens! * 4) / 1_000_000, 0) : null;
+  const lines = [
+    real ? "# Simple Workflow 审查与修复报告" : "# Simple Workflow 合成演练报告",
+    "",
+    real ? "> 本机执行，未启用文件与网络隔离。代码通过 DeepSeek API 处理。命令及子进程可能访问宿主文件和网络；文件应用及撤销仅覆盖登记的事务变更。" : "> 本报告使用固定合成数据。未调用模型、未读取本地项目、未执行命令、未写入文件。不能作为真实审查或测试证据。",
+    "",
+    `- 运行：${state.id}`,
+    `- 工作流：${state.workflow.name}`,
+    `- 状态：${statuses[state.status]}`,
+    `- 结论：${state.conclusion ? conclusions[state.conclusion] : "尚未得出"}`,
+    ...(state.reviewConclusion ? [`- 文件事务前的审查结论：${conclusions[state.reviewConclusion]}（当前事务状态见下）`] : []),
+    `- 修复轮次：${state.round}/${state.maxRounds}`,
+    `- 工作区：${state.workspace?.root ?? "虚拟示例"}`,
+    `- 范围：${state.scope.join(", ")}${real ? "" : "（虚拟示例）"}`,
+    `- 版本：${state.baselineVersion} → ${state.currentVersion}`,
+    `- 停止原因：${state.exitReason ?? "运行中"}`,
+    `- 应用状态：${applicationStatuses[state.applicationStatus]}${state.applicationError ? `；${state.applicationError}` : ""}`,
+    `- 修复模式快照：${state.repairMode}`,
+    real ? `- 模型调用：${usage.length} 次；实际 usage 见明细，缺失字段为未知。${low === null ? "费用估算未知。" : `按 2026-10-14 价格快照估算人民币 ${low.toFixed(6)}–${(low * 2).toFixed(6)} 元（空闲/高峰范围，非账单）。`}` : `- 模型用量：0（无模型调用，无费用）`,
+    "",
+    ...(real ? ["## 执行预算与限制", "", "目标平台：Linux；副本只复制普通文本，不复制 node_modules，不自动安装依赖。需要未准备依赖的检查不能作为通过证据。", "", "副本上限：1000 文件、16 MiB 总文本、1 MiB/文件；单次读取 256 KiB、节点读取总量 512 KiB。每节点最多 21 轮模型请求、20 次工具调用（错误与拒绝计入），输入历史 64 KiB；输出按节点配置。节点总耗时 10 分钟（含审核等待）；模型请求/命令各 120 秒，命令每路输出最多 1 MiB。HTTP 429/5xx 最多尝试 3 次，失败尝试的用量或未知结果独立记录。", ""] : []),
+    "## 节点与各轮结果",
+    "",
+  ];
+  for (const record of state.records) {
+    lines.push(
+      `### ${record.nodeId} · 第 ${record.round} 轮 · ${record.status}`,
+      "",
+      `输入版本：${record.inputVersion}`,
+      "",
+      "```json",
+      JSON.stringify(
+        { input: record.input, output: record.output, error: record.error },
+        null,
+        2,
+      ),
+      "```",
+      "",
+    );
+  }
+  lines.push(
+    real ? "## 命令审核" : "## 命令审核（未启动任何进程）",
+    "",
+    "```json",
+    JSON.stringify(state.approvals, null, 2),
+    "```",
+    "",
+    "## 最终问题",
+    "",
+    "```json",
+    JSON.stringify(state.issues, null, 2),
+    "```",
+    "",
+    "## 事件",
+    "",
+  );
+  if (real) for (const [title, value] of [
+    ["固定工作区与排除规则", state.workspace],
+    ["读取路径及版本", state.reads],
+    ["真实命令与验证（拒绝、截断、超时和取消均保留）", state.commands],
+    ["最终整批差异", state.changes],
+    ["文件应用与恢复事务", state.transaction],
+    ["模型用量与未知请求", state.usage],
+  ] as const) lines.push(`## ${title}`, "", "```json", JSON.stringify(value ?? null, null, 2), "```", "");
+  state.events.forEach((event) =>
+    lines.push(`- ${event.seq}. ${event.time} ${event.message}`),
+  );
+  return lines.join("\n");
+}
