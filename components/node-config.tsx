@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { cx } from "./studio-styles";
 import { labels, nodeSchema, type WorkflowNode } from "@/lib/workflow/schema";
 
 export function NodeConfig({
@@ -15,8 +16,8 @@ export function NodeConfig({
   const [error, setError] = useState("");
   return (
     <>
-      <div className="config-node">
-        <span className="eyebrow">{node.kind.toUpperCase()}</span>
+      <div className={cx("config-node")}>
+        <span className={cx("eyebrow")}>{node.kind.toUpperCase()}</span>
         <h3>{labels[node.kind]}</h3>
         <code>{node.id}</code>
       </div>
@@ -50,7 +51,7 @@ export function NodeConfig({
               }
             />
           </label>
-          <label className="checkbox-label">
+          <label className={cx("checkbox-label")}>
             <input
               type="checkbox"
               checked={node.config.thinking}
@@ -101,7 +102,7 @@ export function NodeConfig({
               }
             />
           </label>
-          <label className="checkbox-label">
+          <label className={cx("checkbox-label")}>
             <input
               type="checkbox"
               checked={node.config.requireValidation}
@@ -148,14 +149,13 @@ export function NodeConfig({
               }
             />
           </label>
-          <p className="help">第一次进入修复为第 1 轮；初始审查不计入。</p>
         </>
       )}
       {node.kind === "branch" && (
         <>
           <h3>有序条件</h3>
           {node.config.conditions.map((condition, i) => (
-            <div className="condition-editor" key={condition.id}>
+            <div className={cx("condition-editor")} key={condition.id}>
               <strong>
                 {i + 1}. {condition.id}
               </strong>
@@ -165,9 +165,8 @@ export function NodeConfig({
               </code>
             </div>
           ))}
-          <p className="help">
-            按显示顺序匹配第一条，否则走 fallback。可在下方 JSON
-            中修改条件并重新连接对应出口。
+          <p className={cx("help")}>
+            在下方 JSON 中编辑条件。
           </p>
         </>
       )}
@@ -200,7 +199,7 @@ export function NodeConfig({
         </label>
       ))}
       <details
-        className="advanced-config"
+        className={cx("advanced-config")}
         onToggle={(e) => {
           if (e.currentTarget.open)
             setAdvanced(
@@ -244,12 +243,12 @@ export function NodeConfig({
           应用配置
         </button>
         {error && (
-          <p className="config-error" role="alert">
+          <p className={cx("config-error")} role="alert">
             {error}
           </p>
         )}
       </details>
-      <button className="danger-outline" onClick={remove}>
+      <button className={cx("danger-outline")} onClick={remove}>
         删除节点
       </button>
     </>
