@@ -336,3 +336,50 @@ test("缺失模块清楚记录为不可用验证，禁止假称测试通过", as
     assert.equal(record.status, "unavailable"); assert.match(record.stderr, /验证未完成/);
   } finally { await f.cleanup(); }
 });
+
+function repairSequenceClient(steps: ("read" | "fix" | "break" | "refine" | "check0" | "check1")[]): CompletionClient {
+  const fallback = scriptedClient();
+  return async (messages, tools, config, signal, nodeId) => {
+    if (nodeId !== "repair") return fallback(messages, tools, config, signal, nodeId);
+    const input = JSON.parse((messages[1] as { content: string }).content);
+    const outputs = messages.filter(m => m.role === "tool").map(m => JSON.parse(m.content!));
+    const current = outputs.findLast(result => result.version)?.version ?? input.version;
+    const step = steps[outputs.length];
+    if (step === "read") return oneTool("read_file", { path: "src/math.js", version: current, startLine: 1, endLine: 1 }, `repair-${outputs.length}`);
+    if (step === "check0" || step === "check1") return oneTool("request_check", { commandIndex: step === "check0" ? 0 : 1, version: current }, `repair-${outputs.length}`);
+    if (step === "fix" || step === "break" || step === "refine") {
+      const previousPatch = steps.slice(0, outputs.length).findLast(s => s === "fix" || s === "break");
+      const before = previousPatch === "fix" ? "module.exports=(a,b)=>a+b;" : previousPatch === "break" ? "module.exports=(a,b)=>a*b;" : "module.exports=(a,b)=>a-b;";
+      return oneTool("submit_patch", { path: "src/math.js", version: current, before, after: step === "refine" ? "module.exports=(a,b)=>a + b;" : step === "fix" ? "module.exports=(a,b)=>a+b;" : "module.exports=(a,b)=>a*b;" }, `repair-${outputs.length}`);
+    }
+    return oneTool("submit_result", { resolutions: [{ issueId: input.originalIssues[0].id, explanation: "fixed" }], unrepairable: [] }, `repair-${outputs.length}`);
+  };
+}
+
+for (const [name, steps, expected, extraTest] of [
+  ["通过后再次修改代码，旧验证不能放行最终版本", ["read", "fix", "check0", "break"], "validation_incomplete", false],
+  ["同一版本有成功和失败的必要检查，不能以成功掩盖失败", ["read", "fix", "check1", "check0"], "execution_failed", true],
+  ["修改后不能用其他成功检查替代未重跑的必要检查", ["read", "check1", "fix", "check0"], "validation_incomplete", true],
+  ["修改后重新验证最终版本，允许正常完成", ["read", "fix", "check0", "refine", "check0"], "passed", false],
+] as const) {
+  test(`修复必要验证：${name}`, async () => {
+    const f = await fixture({ "src/math.js": "module.exports=(a,b)=>a-b;", "math.test.cjs": "require('node:assert/strict').equal(require('./src/math.js')(2,1),3);", ...(extraTest ? { "z-required.test.cjs": "throw new Error('required failure');" } : {}) });
+    try {
+      const flow = createTemplate();
+      const repair = flow.nodes.find(n => n.kind === "repair")!;
+      if (repair.kind === "repair") repair.config.requireValidation = true;
+      const evidence: RuntimeEvidence = { reads: [], commands: [], usage: [] };
+      const engine = engineFor(f, flow, createAgentRunner(f.copy, await availableCommands(f.copy), repairSequenceClient([...steps]), evidence), state => {
+        const approval = state.approvals.find(a => a.status === "pending");
+        if (approval) queueMicrotask(() => engine.decideApproval(approval.id, approval.displayHash, "approved"));
+      });
+      await engine.start();
+      assert.equal(engine.snapshot().conclusion, expected, engine.snapshot().exitReason);
+      assert.equal(engine.snapshot().applicationStatus, "not_applied");
+      assert.equal(await readFile(path.join(f.project, "src/math.js"), "utf8"), "module.exports=(a,b)=>a-b;");
+      assert.ok(evidence.commands.some(command => command.status === "passed"));
+      if (extraTest) assert.ok(evidence.commands.some(command => command.status === "failed"));
+      if (expected !== "passed") assert.equal(engine.snapshot().records.some(r => r.kind === "rereview" && r.status === "completed"), false);
+    } finally { await f.cleanup(); }
+  });
+}

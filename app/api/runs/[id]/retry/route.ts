@@ -10,6 +10,6 @@ export function POST(request: Request, context: RouteContext<"/api/runs/[id]/ret
     const parsed = z.object({ requestId: z.string().uuid() }).strict().safeParse(await readJson(request));
     if (!parsed.success) throw new HttpError(400, "需要新的幂等标识");
     // Retry creates a new run and baseline; it never replays old approvals or applications.
-    return json(await manager.create(state.mode === "real" ? { mode: "real", workflow: state.workflow, workspaceId: state.workspace!.id, selection: state.workspace!.selection, repairMode: state.repairMode, requestId: parsed.data.requestId } : { workflow: state.workflow, scenario: state.scenario, repairMode: state.repairMode, requestId: parsed.data.requestId }, session.id), 201);
+    return json(await manager.create({ mode: "real", workflow: state.workflow, workspaceId: state.workspace!.id, selection: state.workspace!.selection, repairMode: state.repairMode, requestId: parsed.data.requestId }, session.id), 201);
   });
 }

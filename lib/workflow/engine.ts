@@ -6,7 +6,6 @@ import {
   type ApprovalRequest,
   type Conclusion,
   type DataReference,
-  type DemoScenario,
   type NodeOutput,
   type NodeRecord,
   type ReviewResult,
@@ -50,13 +49,12 @@ export class WorkflowEngine {
     workflow: Workflow,
     private runner: NodeRunner,
     options: {
-      scenario?: DemoScenario;
       repairMode?: "confirm" | "automatic";
       id?: string;
       nodeTimeoutMs?: number;
-      real?: { scope: string[]; baselineVersion: string; workspace: NonNullable<RunState["workspace"]>; allowCommand: (command: CommandSpec) => boolean; allowPath: (path: string) => boolean };
+      real: { scope: string[]; baselineVersion: string; workspace: NonNullable<RunState["workspace"]>; allowCommand: (command: CommandSpec) => boolean; allowPath: (path: string) => boolean };
       onChange?: (state: RunState) => void;
-    } = {},
+    },
   ) {
     const validation = validateWorkflow(workflow);
     if (!validation.valid)
@@ -67,19 +65,18 @@ export class WorkflowEngine {
     this.state = {
       formatVersion: 1,
       id: options.id ?? randomUUID(),
-      mode: options.real ? "real" : "synthetic",
-      scenario: options.scenario ?? "repairable",
+      mode: "real",
       workflow: structuredClone(validation.workflow!),
-      scope: options.real?.scope ?? ["src/math.ts", "src/math.test.ts"],
+      scope: options.real.scope,
       repairMode: options.repairMode ?? "confirm",
       applicationStatus: "not_applied",
       status: "pending",
       round: 0,
       maxRounds:
         workflow.nodes.find((n) => n.kind === "loop")?.config.maxRounds ?? 1,
-      baselineVersion: options.real?.baselineVersion ?? "demo-v0",
-      currentVersion: options.real?.baselineVersion ?? "demo-v0",
-      ...(options.real ? { workspace: structuredClone(options.real.workspace), changes: [], reads: [], commands: [], usage: [] } : {}),
+      baselineVersion: options.real.baselineVersion,
+      currentVersion: options.real.baselineVersion,
+      workspace: structuredClone(options.real.workspace), changes: [], reads: [], commands: [], usage: [],
       records: [],
       issues: [],
       approvals: [],
@@ -88,7 +85,7 @@ export class WorkflowEngine {
     };
   }
   private onChange?: (state: RunState) => void;
-  private real?: { allowCommand: (command: CommandSpec) => boolean; allowPath: (path: string) => boolean };
+  private real: { allowCommand: (command: CommandSpec) => boolean; allowPath: (path: string) => boolean };
   updateApplication(patch: Pick<RunState, "applicationStatus"> & Partial<Pick<RunState, "transaction" | "applicationError" | "changes">>) {
     Object.assign(this.state, structuredClone(patch));
     if (patch.applicationStatus === "apply_failed" && this.state.conclusion !== "cancelled") {
@@ -218,7 +215,7 @@ export class WorkflowEngine {
     this.emit(
       "approval_decided",
       decision === "approved"
-        ? this.real ? "已批准本机执行，未启用文件与网络隔离" : "已批准合成检查（不启动进程）"
+        ? "已批准本机执行，未启用文件与网络隔离"
         : "已拒绝检查；记录验证未执行",
     );
     resolve(decision);
@@ -228,14 +225,7 @@ export class WorkflowEngine {
   ): Promise<"approved" | "rejected"> => {
     this.ensureActive();
     if (this.pending.size) throw new Error("每个运行只允许一个待审核请求");
-    if (this.real ? !this.real.allowCommand(command) : (
-      command.executable !== "node" ||
-      command.cwd !== "." ||
-      command.args.length !== 2 ||
-      command.args[0] !== "--test" ||
-      command.args[1] !== "src/math.test.ts"
-    ))
-      throw new Error("命令不在演练白名单内");
+    if (!this.real.allowCommand(command)) throw new Error("命令不在本次固定白名单内");
     const signature = (a: CommandSpec) =>
       JSON.stringify([a.executable, a.args, a.cwd]);
     if (
@@ -254,7 +244,7 @@ export class WorkflowEngine {
       nodeId: this.state.currentNodeId!,
       round: this.state.round,
       version: this.state.currentVersion,
-      environment: this.real ? "local-minimal-env-v1" as const : "synthetic-no-process" as const,
+      environment: "local-minimal-env-v1" as const,
     };
     const request: ApprovalRequest = {
       ...binding,
@@ -272,7 +262,7 @@ export class WorkflowEngine {
     this.state.records.at(-1)!.status = "awaiting_approval";
     this.emit(
       "approval_requested",
-      this.real ? `等待逐次审核：${command.executable} ${JSON.stringify(command.args)}；本机执行，未启用文件与网络隔离` : "等待逐次审核：node --test src/math.test.ts（合成演练）",
+      `等待逐次审核：${command.executable} ${JSON.stringify(command.args)}；本机执行，未启用文件与网络隔离`,
     );
     return promise;
   };
@@ -303,7 +293,7 @@ export class WorkflowEngine {
   ) {
     this.state.conclusion = conclusion;
     this.state.exitReason = reason;
-    this.state.status = this.real && status === "completed" ? "finalizing" : status;
+    this.state.status = status === "completed" ? "finalizing" : status;
     this.state.finishedAt = new Date().toISOString();
     this.state.currentNodeId = undefined;
     for (const node of this.state.workflow.nodes) {
@@ -359,7 +349,7 @@ export class WorkflowEngine {
           signal,
           syncVersion: (version) => {
             this.ensureActive();
-            if (!this.real || this.state.currentNodeId !== record.nodeId || record.status !== "running") throw new Error("节点无权更新版本");
+            if (this.state.currentNodeId !== record.nodeId || record.status !== "running") throw new Error("节点无权更新版本");
             this.state.currentVersion = version;
           },
           update: (patch, message) => {
@@ -423,7 +413,7 @@ export class WorkflowEngine {
   private async execute() {
     this.emit(
       "run_started",
-      this.real ? "启动真实工作流；命令需要逐次审核，文件与网络隔离未启用" : "启动合成演练；不调用模型、不读取项目、不写入文件",
+      "启动真实工作流；命令需要逐次审核，文件与网络隔离未启用",
     );
     let nodeId = this.state.workflow.nodes.find((n) => n.kind === "read")!.id;
     // Defense in depth: even a future validator regression cannot make execution infinite.
@@ -519,11 +509,10 @@ export class WorkflowEngine {
           } else if (node.kind === "repair") {
             output = repairResultSchema.parse(raw);
             if (
-              output.basedOnVersion !== (this.real ? record.inputVersion : this.state.currentVersion) ||
-              (!this.real && output.version === output.basedOnVersion)
+              output.basedOnVersion !== record.inputVersion
             )
               throw new Error("修复前置版本或新版本错误");
-            if (output.changes.some((c) => this.real ? !this.real.allowPath(c.path) : !this.state.scope.includes(c.path)))
+            if (output.changes.some((c) => !this.real.allowPath(c.path)))
               throw new Error("修复变更超出固定范围");
             if (
               new Set(output.changes.map((c) => c.path)).size !==
@@ -566,7 +555,7 @@ export class WorkflowEngine {
             output.conclusion,
             this.state.exitReason ??
               (output.conclusion === "passed"
-                ? `所需审查完整，没有阻塞问题${this.real ? "" : "（合成结果）"}`
+                ? "所需审查完整，没有阻塞问题"
                 : "审查结束，仍有阻塞问题"),
           );
           return;

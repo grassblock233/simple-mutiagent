@@ -73,7 +73,7 @@ export class Storage {
   async loadRun(id: string): Promise<RunState> {
     this.checkId(id);
     const state: RunState = JSON.parse(await readFile(path.join(this.root, "runs", `${id}.json`), "utf8"));
-    if (state.id !== id || state.formatVersion !== 1 || !validateWorkflow(state.workflow).valid) throw new Error("历史格式无效");
+    if (state.mode !== "real" || !state.workspace || state.id !== id || state.formatVersion !== 1 || !validateWorkflow(state.workflow).valid) throw new Error("历史格式无效");
     return state;
   }
   async listRuns() {
@@ -81,7 +81,10 @@ export class Storage {
     try { files = await readdir(path.join(this.root, "runs")); }
     catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return []; throw error; }
     const states: RunState[] = [];
-    for (const file of files.filter(f => /^[a-f0-9-]{36}\.json$/.test(f))) states.push(await this.loadRun(file.slice(0, -5)));
+    for (const file of files.filter(f => /^[a-f0-9-]{36}\.json$/.test(f))) {
+      const raw = JSON.parse(await readFile(path.join(this.root, "runs", file), "utf8"));
+      if (raw.mode === "real") states.push(await this.loadRun(file.slice(0, -5)));
+    }
     return states.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
   async removeRun(id: string, transactionId?: string) {
@@ -107,6 +110,7 @@ export class Storage {
       const state: RunState = JSON.parse(
         await readFile(path.join(directory, file), "utf8"),
       );
+      if (state.mode !== "real") continue;
       if (["pending", "running", "awaiting_approval", "finalizing"].includes(state.status)) {
         state.status = "interrupted";
         state.conclusion = "execution_failed";

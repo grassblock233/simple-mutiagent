@@ -12,7 +12,7 @@ import {
   SESSION_COOKIE,
 } from "../lib/server/security";
 import { Storage } from "../lib/server/storage";
-import { WorkflowEngine } from "../lib/workflow/engine";
+import { TestWorkflowEngine as WorkflowEngine } from "./engine-fixture";
 import { createTemplate } from "../lib/workflow/templates";
 
 function request(headers: Record<string, string> = {}, body?: string) {
@@ -108,7 +108,7 @@ test("持久化：JSONL 顺序、报告、差异和私有基线独立保存并�
     await storage.saveRun(state);
     await storage.saveBaseline(state.id, { "src/a.ts": "private source" });
     assert.deepEqual((await readFile(path.join(root, "events", state.id + ".jsonl"), "utf8")).trim().split("\n").map(line => JSON.parse(line).seq), state.events.map(e => e.seq));
-    assert.match(await readFile(path.join(root, "reports", state.id + ".md"), "utf8"), /审查|合成/);
+    assert.match(await readFile(path.join(root, "reports", state.id + ".md"), "utf8"), /审查|测试夹具/);
     assert.equal((await storage.listRuns())[0].id, state.id);
     assert.deepEqual(await storage.loadBaseline(state.id), { "src/a.ts": "private source" });
     await storage.removeRun(state.id);
@@ -131,15 +131,15 @@ test("重启标记中断及审核过期，不恢复命令或执行器", async ()
       runId: state.id,
       nodeId: "review",
       round: 0,
-      version: "demo-v0",
+      version: "test-v0",
       executable: "node",
       args: ["--test"],
       cwd: ".",
-      purpose: "合成",
+      purpose: "测试夹具",
       artifacts: [],
       displayHash: "0".repeat(64),
       status: "pending",
-      environment: "synthetic-no-process",
+      environment: "local-minimal-env-v1",
       createdAt: state.createdAt,
     });
     const storage = new Storage(root);
@@ -164,4 +164,21 @@ test("重启标记中断及审核过期，不恢复命令或执行器", async ()
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test("历史兼容：旧演练记录不载入、不展示，启动不将其改写为真实记录", async () => {
+  const { writeFile } = await import("node:fs/promises");
+  const root = await mkdtemp(path.join(tmpdir(), "workflow-legacy-"));
+  try {
+    const storage = new Storage(root);
+    const state = new WorkflowEngine(createTemplate(), async () => null).snapshot();
+    await storage.saveRun(state);
+    const legacy = { ...state, mode: "synthetic", status: "running" };
+    const filename = path.join(root, "runs", `${state.id}.json`);
+    await writeFile(filename, JSON.stringify(legacy));
+    await storage.markInterrupted();
+    assert.deepEqual(await storage.listRuns(), []);
+    await assert.rejects(storage.loadRun(state.id), /历史格式/);
+    assert.deepEqual(JSON.parse(await readFile(filename, "utf8")), legacy);
+  } finally { await rm(root, { recursive: true, force: true }); }
 });

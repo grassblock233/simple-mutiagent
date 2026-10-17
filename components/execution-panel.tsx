@@ -121,7 +121,7 @@ export function ExecutionPanel({
               >
                 重新运行
               </button>
-              {run.mode === "real" && run.changes?.length ? (
+              {run.changes?.length ? (
                 <button
                   disabled={
                     Boolean(running) ||
@@ -187,7 +187,7 @@ export function ExecutionPanel({
           <div className={cx(`conclusion conclusion-${run.conclusion}`)}>
             <strong>
               {conclusions[run.conclusion]} ·{" "}
-              {run.mode === "real" ? "真实运行" : "合成结果"}
+              真实运行
             </strong>
             <span>{run.exitReason}</span>
             <span>
@@ -263,18 +263,16 @@ export function ExecutionPanel({
             </div>
           ) : (
             <div className={cx("diff-list")}>
-              {run.mode === "real" && (
-                <details open>
-                  <summary>最终整批差异 · {run.currentVersion}</summary>
-                  <pre>{JSON.stringify(run.changes ?? [], null, 2)}</pre>
-                </details>
-              )}
+              <details open>
+                <summary>最终整批差异 · {run.currentVersion}</summary>
+                <pre>{JSON.stringify(run.changes ?? [], null, 2)}</pre>
+              </details>
               {changes.length ? (
                 changes.map((change, i) => (
                   <div key={i}>
                     <strong>
                       {change.path} · 第 {change.round} 轮 ·{" "}
-                      {run.mode === "real" ? "副本差异" : "合成差异"}
+                      副本差异
                     </strong>
                     <pre className={cx("diff-before")}>
                       − {change.before ?? "（原先不存在）"}

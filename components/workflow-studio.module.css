@@ -593,39 +593,6 @@
   margin-top: 24px;
   width: 100%;
 }
-.mode-options {
-  display: grid;
-  gap: 8px;
-  margin: 20px 0;
-}
-.mode-card {
-  display: grid;
-  grid-template-columns: 20px 1fr;
-  text-align: left;
-  justify-content: start;
-  gap: 0 10px;
-  padding: 12px;
-}
-.mode-card svg {
-  grid-row: span 2;
-  align-self: center;
-  color: var(--muted);
-}
-.mode-card strong {
-  font-size: 12px;
-  font-weight: 600;
-}
-.mode-card small {
-  font-size: 10px;
-}
-.mode-card.active {
-  background: var(--accent-soft);
-  border-color: var(--accent);
-}
-.mode-card.active svg,
-.mode-card.active strong {
-  color: var(--accent);
-}
 .run-settings h3 {
   font-size: 15px;
   margin: 7px 0 8px;

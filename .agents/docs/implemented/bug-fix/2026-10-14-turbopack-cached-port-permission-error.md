@@ -15,13 +15,13 @@ binding to a port
 Operation not permitted (os error 1)
 ```
 
-`next.config.ts` 的 `turbopack.rules["*.css"]` 将全部 CSS 交给 `@tailwindcss/turbopack`，包括 `app/layout.tsx` 引入的 React Flow 样式。Turbopack 执行 JavaScript loader 时需要启动执行进程并建立本地 TCP 通信，因此生产构建也会涉及端口绑定。
+故障发生时，`next.config.ts` 的 `turbopack.rules["*.css"]` 将全部 CSS 交给 `@tailwindcss/turbopack`，包括 `app/layout.tsx` 引入的 React Flow 样式。Turbopack 执行 JavaScript loader 时需要启动执行进程并建立本地 TCP 通信，因此生产构建也会涉及端口绑定。当前规则已按[工作台 CSS Modules 决定](../feature/2026-10-14-workflow-studio-ui.md#主题与布局)排除 `*.module.css`；那项配置调整不属于本次缓存修复。
 
 报错文本容易让人判断当前环境禁止监听端口，但必须区分实际系统调用失败与缓存重放。此次持续失败的直接原因是旧 Turbopack 文件系统缓存保存并重放了端口权限错误；最初产生该错误的环境策略尚未确认。
 
 ## Decision
 
-保留默认 Turbopack、CSS loader 配置和源码，将 `.next/cache/turbopack` 移到仓库外备份，让下一次构建重新生成缓存。本次修复只处理构建缓存，没有修改依赖、源码、监听端口或权限策略。
+遇到与下述证据相符的缓存重放故障时，保留默认 Turbopack 和当次 CSS loader 配置，将 `.next/cache/turbopack` 移到仓库外备份，让构建重新生成缓存。2026-10-14 的修复只处理构建缓存，没有修改依赖、源码、监听端口或权限策略。
 
 ### 历史审计
 

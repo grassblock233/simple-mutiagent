@@ -14,7 +14,6 @@ import {
 import { createTemplate } from "@/lib/workflow/templates";
 import {
   workflowSchema,
-  type DemoScenario,
   type RunState,
   type Workflow,
   type WorkflowNode,
@@ -86,7 +85,6 @@ function Studio() {
   const [excludes, setExcludes] = useState<string>();
   const [browse, setBrowse] = useState<DirectoryBrowse>();
   const [run, setRun] = useState<RunState>();
-  const [scenario, setScenario] = useState<DemoScenario>("repairable");
   const [repairMode, setRepairMode] = useState<"confirm" | "automatic">(
     "confirm",
   );
@@ -99,7 +97,6 @@ function Studio() {
   const [rightOpen, setRightOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
-  const [runMode, setRunMode] = useState<"real" | "demo">("real");
   const [noticeError, setNoticeError] = useState(false);
   const leftRef = useRef<HTMLElement>(null);
   const rightRef = useRef<HTMLElement>(null);
@@ -350,31 +347,20 @@ function Studio() {
         await api<RunState>(
           "/api/runs",
           "POST",
-          runMode === "real"
-            ? {
-                mode: "real",
-                workflow,
-                workspaceId: workspace!.id,
-                selection,
-                repairMode,
-                requestId: crypto.randomUUID(),
-              }
-            : {
-                workflow,
-                scenario,
-                repairMode,
-                requestId: crypto.randomUUID(),
-              },
+          {
+            mode: "real",
+            workflow,
+            workspaceId: workspace!.id,
+            selection,
+            repairMode,
+            requestId: crypto.randomUUID(),
+          },
         ),
       );
       setView("events");
       setExpanded(true);
       setRightOpen(false);
-      setNotice(
-        runMode === "real"
-          ? "真实运行已启动。"
-          : "合成演练已启动。",
-      );
+      setNotice("运行已启动。");
     });
   }
   const actions = { csrf, busy, action, api, setNotice };
@@ -734,10 +720,6 @@ function Studio() {
             </div>
             <div hidden={!settingsOpen}>
               <RunSettings
-                mode={runMode}
-                setMode={setRunMode}
-                scenario={scenario}
-                setScenario={setScenario}
                 repairMode={repairMode}
                 setRepairMode={setRepairMode}
                 csrf={csrf}

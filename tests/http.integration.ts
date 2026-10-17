@@ -11,7 +11,7 @@ import { type RunState } from "../lib/workflow/schema";
 import { Storage } from "../lib/server/storage";
 import { WorkingCopy } from "../lib/runtime/workspace";
 import { DEFAULT_EXCLUDES, version } from "../lib/runtime/files";
-import { WorkflowEngine } from "../lib/workflow/engine";
+import { TestWorkflowEngine as WorkflowEngine } from "./engine-fixture";
 
 let server: ChildProcess;
 let root: string;
@@ -46,12 +46,25 @@ async function waitState(id: string, testState: (state: RunState) => boolean) {
   }
   throw new Error("运行未在 5 秒内进入预期状态");
 }
-async function create(scenario = "repairable") {
+const projects: string[] = [];
+const preload = path.resolve("tests/fixtures/model-transport.mjs");
+async function create(kind = "repairable") {
+  const project = await mkdtemp(path.join(tmpdir(), "workflow-http-real-"));
+  projects.push(project);
+  await mkdir(path.join(project, "src"));
+  await writeFile(path.join(project, "src/math.js"), ["repairable", "validated-repair"].includes(kind) ? "module.exports=(a,b)=>a-b;" : "module.exports=(a,b)=>a+b;");
+  await writeFile(path.join(project, "math.test.cjs"), "require('node:assert/strict').equal(require('./src/math.js')(2,1),3);");
+  const opened = await api("/api/workspaces", "POST", { path: project });
+  assert.equal(opened.response.status, 200);
+  const workflow = createTemplate();
+  for (const node of workflow.nodes) if (["review", "repair", "rereview"].includes(node.kind) && "prompt" in node.config) {
+    node.config.prompt = `HTTP_TEST:${node.kind}`;
+    node.config.requireValidation = (kind === "validation" && node.kind === "review") || (kind === "validated-repair" && node.kind === "rereview");
+  }
   const payload = {
-    workflow: createTemplate(),
-    scenario,
-    repairMode: "confirm",
-    requestId: randomUUID(),
+    mode: "real", workflow, workspaceId: opened.data.id,
+    selection: [{ path: "src", directory: true }],
+    repairMode: "confirm", requestId: randomUUID(),
   };
   const result = await api("/api/runs", "POST", payload);
   assert.equal(result.response.status, 201, JSON.stringify(result.data));
@@ -84,6 +97,7 @@ before(async () => {
         ...process.env,
         SIMPLE_WORKFLOW_DATA_DIR: root,
         DEEPSEEK_API_KEY: "integration-sentinel-not-real",
+        NODE_OPTIONS: `--import=${preload}`,
       },
       stdio: ["ignore", "pipe", "pipe"],
     },
@@ -117,6 +131,7 @@ after(async () => {
     await stopped;
   }
   if (root) await rm(root, { recursive: true, force: true });
+  for (const project of projects) await rm(project, { recursive: true, force: true });
 });
 
 test("HTTP：站点来源和 CSRF 拒绝未授权访问", async () => {
@@ -166,7 +181,7 @@ test("HTTP：请求幂等、配置绑定、工作流快照与事件重放", asyn
   const { payload, state } = await create();
   assert.equal((await api("/api/runs", "POST", payload)).data.id, state.id);
   assert.equal(
-    (await api("/api/runs", "POST", { ...payload, scenario: "clean" })).response
+    (await api("/api/runs", "POST", { ...payload, repairMode: "automatic" })).response
       .status,
     409,
   );
@@ -175,7 +190,7 @@ test("HTTP：请求幂等、配置绑定、工作流快照与事件重放", asyn
       .response.status,
     409,
   );
-  const finished = await waitState(state.id, (s) => s.status === "completed");
+  const finished = await waitState(state.id, (s) => ["completed", "awaiting_confirmation"].includes(s.status));
   assert.equal(finished.conclusion, "passed");
   assert.equal(finished.round, 1);
   const afterSeq = finished.events.length - 3;
@@ -191,7 +206,7 @@ test("HTTP：请求幂等、配置绑定、工作流快照与事件重放", asyn
 });
 test("HTTP：不同会话不能查看运行；报告不含环境密钥", async () => {
   const { state } = await create("clean");
-  await waitState(state.id, (s) => s.status === "completed");
+  await waitState(state.id, (s) => ["completed", "awaiting_confirmation"].includes(s.status));
   const another = await fetch(`${base}/api/session`);
   const anotherCookie = another.headers.get("set-cookie")!.split(";")[0];
   assert.equal(
@@ -239,7 +254,7 @@ test("HTTP：逐次审核拒绝和迟到批准", async () => {
     ).response.status,
     409,
   );
-  const finished = await waitState(state.id, (s) => s.status === "completed");
+  const finished = await waitState(state.id, (s) => ["completed", "awaiting_confirmation"].includes(s.status));
   assert.equal(finished.conclusion, "validation_incomplete");
   assert.equal(finished.round, 0);
 });
@@ -252,7 +267,10 @@ test("HTTP：取消幂等，取消后不能审核", async () => {
   const first = await api(`/api/runs/${state.id}/cancel`, "POST", {});
   const repeated = await api(`/api/runs/${state.id}/cancel`, "POST", {});
   assert.equal(first.data.status, "cancelled");
-  assert.equal(repeated.data.events.length, first.data.events.length);
+  assert.equal(repeated.data.status, "cancelled");
+  // Final tool evidence may arrive after cancellation, but cancellation itself is emitted once.
+  assert.equal(first.data.events.filter((event: { type: string }) => event.type === "run_finished").length, 1);
+  assert.equal(repeated.data.events.filter((event: { type: string }) => event.type === "run_finished").length, 1);
   assert.equal(
     (
       await api(`/api/runs/${state.id}/approval`, "POST", {
@@ -347,7 +365,7 @@ test("HTTP：真实后台重启不重放审核，最新事务恢复后仍可撤�
     }
     assert.equal((await new Storage(root).loadRun(pending.state.id)).approvals[0]?.status, "pending");
     const stopped = new Promise(resolve => server.once("exit", resolve)); server.kill("SIGTERM"); await stopped;
-    server = spawn(process.execPath, ["node_modules/next/dist/bin/next", "start", "--hostname", "127.0.0.1", "--port", new URL(base).port], { env: { ...process.env, SIMPLE_WORKFLOW_DATA_DIR: root, DEEPSEEK_API_KEY: "integration-sentinel-not-real" }, stdio: "ignore" });
+    server = spawn(process.execPath, ["node_modules/next/dist/bin/next", "start", "--hostname", "127.0.0.1", "--port", new URL(base).port], { env: { ...process.env, SIMPLE_WORKFLOW_DATA_DIR: root, DEEPSEEK_API_KEY: "integration-sentinel-not-real", NODE_OPTIONS: `--import=${preload}` }, stdio: "ignore" });
     let ready = false;
     for (let i = 0; i < 100; i++) {
       try {
@@ -368,4 +386,79 @@ test("HTTP：真实后台重启不重放审核，最新事务恢复后仍可撤�
     assert.equal((await api(`/api/history/${id}`, "DELETE", { acknowledgeLossOfUndo: true })).response.status, 200);
     for (const transaction of [old, latest]) await assert.rejects(readFile(path.join(root, "transactions", transaction.id + ".json")));
   } finally { await rm(project, { recursive: true, force: true }); }
+});
+
+test("HTTP：真实运行逐次批准命令、最终确认应用与撤销", async () => {
+  const { state } = await create("validated-repair");
+  const streamAbort = new AbortController();
+  const stream = await fetch(`${base}/api/runs/${state.id}/events`, { headers: { cookie }, signal: streamAbort.signal });
+  const consume = (async () => {
+    const reader = stream.body!.getReader();
+    try { while (!(await reader.read()).done) { /* Keep the approval subscription alive. */ } }
+    catch { /* Closed after finalization or test cleanup. */ }
+  })();
+  try {
+    const waiting = await waitState(state.id, s => s.status === "awaiting_approval");
+    const approval = waiting.approvals.find(a => a.status === "pending")!;
+    const filename = path.join(waiting.workspace!.root, "src/math.js");
+    assert.equal(await readFile(filename, "utf8"), "module.exports=(a,b)=>a-b;");
+    assert.equal((await api(`/api/runs/${state.id}/approval`, "POST", { id: approval.id, displayHash: approval.displayHash, decision: "approved" })).response.status, 200);
+    const finished = await waitState(state.id, s => s.status === "awaiting_confirmation");
+    assert.equal(finished.conclusion, "passed");
+    assert.equal(finished.commands?.length, 1);
+    assert.equal(finished.commands[0].status, "passed");
+    assert.equal(finished.commands[0].version, finished.currentVersion);
+    assert.equal(await readFile(filename, "utf8"), "module.exports=(a,b)=>a-b;");
+    const applied = await api(`/api/runs/${state.id}/apply`, "POST", { version: finished.currentVersion });
+    assert.equal(applied.data.applicationStatus, "applied");
+    assert.equal(await readFile(filename, "utf8"), "module.exports=(a,b)=>a+b;");
+    assert.equal((await api(`/api/runs/${state.id}/undo`, "POST", {})).data.applicationStatus, "undone");
+    assert.equal(await readFile(filename, "utf8"), "module.exports=(a,b)=>a-b;");
+  } finally { streamAbort.abort(); await consume; }
+});
+
+test("HTTP：删除演练后拒绝旧请求格式，旧记录不出现在真实历史中", async () => {
+  const workflow = createTemplate();
+  for (const payload of [
+    { workflow, scenario: "clean", repairMode: "confirm", requestId: randomUUID() },
+    { mode: "synthetic", workflow, scenario: "clean", repairMode: "confirm", requestId: randomUUID() },
+  ]) assert.equal((await api("/api/runs", "POST", payload)).response.status, 400);
+  const state = new WorkflowEngine(workflow, async () => null).snapshot();
+  const legacy = { ...state, mode: "synthetic", status: "completed", conclusion: "passed" };
+  await writeFile(path.join(root, "runs", `${state.id}.json`), JSON.stringify(legacy));
+  assert.equal((await api("/api/history")).data.runs.some((r: { id: string }) => r.id === state.id), false);
+  assert.equal((await api(`/api/history/${state.id}`, "POST", {})).response.status, 404);
+  assert.equal((await api(`/api/runs/${state.id}/retry`, "POST", { requestId: randomUUID() })).response.status, 404);
+  assert.deepEqual(JSON.parse(await readFile(path.join(root, "runs", `${state.id}.json`), "utf8")), legacy);
+});
+
+test("HTTP：容量满时仍能删除未载入历史，未解决事务仍受保护", async () => {
+  const storage = new Storage(root);
+  const states: RunState[] = [];
+  for (let i = 0; i < 51; i++) {
+    const state = new WorkflowEngine(createTemplate("review"), async () => null).snapshot();
+    state.status = "completed";
+    state.conclusion = "passed";
+    await storage.saveRun(state);
+    states.push(state);
+  }
+  let full = false;
+  for (const state of states) {
+    const restored = await api(`/api/history/${state.id}`, "POST", {});
+    if (restored.response.status === 429) { full = true; break; }
+    assert.equal(restored.response.status, 200);
+  }
+  assert.ok(full);
+  const target = states.at(-1)!;
+  assert.equal((await api(`/api/history/${target.id}`, "POST", {})).response.status, 429);
+  // Deletion must inspect durable journals even when a snapshot has no transaction field.
+  const transactionId = randomUUID();
+  await writeFile(path.join(root, "transactions", `${transactionId}.json`), JSON.stringify({ id: transactionId, runId: target.id, status: "needs_recovery", createdAt: new Date().toISOString() }));
+  assert.notEqual((await api(`/api/history/${target.id}`, "DELETE", { acknowledgeLossOfUndo: true })).response.status, 200);
+  await storage.loadRun(target.id);
+  await readFile(path.join(root, "transactions", `${transactionId}.json`));
+  await rm(path.join(root, "transactions", `${transactionId}.json`));
+  assert.equal((await api(`/api/history/${target.id}`, "DELETE", { acknowledgeLossOfUndo: true })).response.status, 200);
+  await assert.rejects(storage.loadRun(target.id));
+  for (const state of states.slice(0, -1)) assert.equal((await api(`/api/history/${state.id}`, "DELETE", { acknowledgeLossOfUndo: true })).response.status, 200);
 });

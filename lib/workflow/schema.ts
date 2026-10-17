@@ -282,7 +282,7 @@ export type ApprovalRequest = {
   cwd: string;
   purpose: string;
   artifacts: string[];
-  environment: "synthetic-no-process" | "local-minimal-env-v1";
+  environment: "local-minimal-env-v1";
   displayHash: string;
   status: "pending" | "approved" | "rejected" | "expired";
   createdAt: string;
@@ -296,31 +296,10 @@ export type RunEvent = {
   message: string;
   nodeId?: string;
 };
-export type DemoScenario =
-  | "clean"
-  | "repairable"
-  | "persistent"
-  | "validation"
-  | "failure";
-export const demoRequestSchema = z
-  .object({
-    workflow: workflowSchema,
-    scenario: z.enum([
-      "clean",
-      "repairable",
-      "persistent",
-      "validation",
-      "failure",
-    ]),
-    repairMode: z.enum(["confirm", "automatic"]),
-    requestId: z.string().uuid(),
-  })
-  .strict();
 export type RunState = {
   formatVersion: 1;
   id: string;
-  mode: "synthetic" | "real";
-  scenario: DemoScenario;
+  mode: "real";
   workflow: Workflow;
   scope: string[];
   repairMode: "confirm" | "automatic";

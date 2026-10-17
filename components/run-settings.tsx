@@ -1,22 +1,10 @@
 "use client";
 import type { Dispatch, SetStateAction } from "react";
-import type { DemoScenario } from "@/lib/workflow/schema";
 import type { Workspace } from "./studio-types";
 import { cx } from "./studio-styles";
 import { Icon } from "./studio-ui";
 type Setter<T> = Dispatch<SetStateAction<T>>;
-const scenarios: Record<DemoScenario, string> = {
-  clean: "审查无阻塞问题",
-  repairable: "修复后复审通过",
-  persistent: "轮数内仍无法解决",
-  validation: "逐次审核验证",
-  failure: "模拟模型超时",
-};
 type Props = {
-  mode: "real" | "demo";
-  setMode: Setter<"real" | "demo">;
-  scenario: DemoScenario;
-  setScenario: Setter<DemoScenario>;
   repairMode: "confirm" | "automatic";
   setRepairMode: Setter<"confirm" | "automatic">;
   csrf: string;
@@ -30,10 +18,6 @@ type Props = {
   onWorkspace: () => void;
 };
 export function RunSettings({
-  mode,
-  setMode,
-  scenario,
-  setScenario,
   repairMode,
   setRepairMode,
   csrf,
@@ -51,62 +35,28 @@ export function RunSettings({
     busy && "请等待当前操作完成",
     running && "请等待或取消当前运行",
     !valid && "请修正工作流校验错误",
-    mode === "real" && !modelConfigured && "尚未配置模型密钥",
-    mode === "real" && !workspace && "请打开一个本地项目",
-    mode === "real" && !selectionCount && "请选择审查与修改范围",
+    !modelConfigured && "尚未配置模型密钥",
+    !workspace && "请打开一个本地项目",
+    !selectionCount && "请选择审查与修改范围",
   ].filter(Boolean);
   return (
     <div className={cx("run-settings")}>
-      <div className={cx("mode-options")} role="group" aria-label="运行模式">
-        <button
-          aria-pressed={mode === "real"}
-          className={cx(mode === "real" ? "mode-card active" : "mode-card")}
-          onClick={() => setMode("real")}
-        >
+      <div className={cx("run-summary")}>
+        <h3>项目与范围</h3>
+        <p className={cx("path-label")}>
+          {workspace?.root ?? "尚未连接项目"}
+        </p>
+        <p className={cx("help")}>已选择 {selectionCount} 项</p>
+        <button onClick={onWorkspace}>
           <Icon name="folder" />
-          <strong>真实工作流</strong>
+          选择工作区
         </button>
-        <button
-          aria-pressed={mode === "demo"}
-          className={cx(mode === "demo" ? "mode-card active" : "mode-card")}
-          onClick={() => setMode("demo")}
-        >
-          <Icon name="play" />
-          <strong>合成演练</strong>
-        </button>
-      </div>
-      {mode === "real" ? (
-        <div className={cx("run-summary")}>
-          <h3>项目与范围</h3>
-          <p className={cx("path-label")}>
-            {workspace?.root ?? "尚未连接项目"}
+        {!modelConfigured && (
+          <p className={cx("help")}>
+            在 .env.local 中配置 DEEPSEEK_API_KEY 并重启服务后可启动真实运行。
           </p>
-          <p className={cx("help")}>已选择 {selectionCount} 项</p>
-          <button onClick={onWorkspace}>
-            <Icon name="folder" />
-            选择工作区
-          </button>
-          {!modelConfigured && (
-            <p className={cx("help")}>
-              在 .env.local 中配置 DEEPSEEK_API_KEY 并重启服务后可启动真实运行。
-            </p>
-          )}
-        </div>
-      ) : (
-        <label>
-          合成场景
-          <select
-            value={scenario}
-            onChange={(e) => setScenario(e.target.value as DemoScenario)}
-          >
-            {Object.entries(scenarios).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
+        )}
+      </div>
       <label>
         修复写入模式
         <select
@@ -126,11 +76,7 @@ export function RunSettings({
           onClick={onStart}
         >
           <Icon name="play" />
-          {busy
-            ? "正在启动…"
-            : mode === "real"
-              ? "运行真实工作流"
-              : "运行合成演练"}
+          {busy ? "正在启动…" : "运行工作流"}
         </button>
         {missing.length > 0 ? (
           <ul className={cx("launch-reasons")}>

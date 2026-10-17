@@ -2,7 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createNode, createTemplate } from "../lib/workflow/templates";
 import { validateWorkflow } from "../lib/workflow/validate";
-import { WorkflowEngine, type NodeRunner } from "../lib/workflow/engine";
+import type { NodeRunner } from "../lib/workflow/engine";
+import { TestWorkflowEngine as WorkflowEngine } from "./engine-fixture";
 import { matchesCondition, reviewFacts } from "../lib/workflow/conditions";
 import { type CommandSpec } from "../lib/workflow/engine";
 import {
@@ -17,7 +18,7 @@ const command: CommandSpec = {
   executable: "node",
   args: ["--test", "src/math.test.ts"],
   cwd: ".",
-  purpose: "合成测试",
+  purpose: "测试夹具测试",
   artifacts: [],
 };
 function review(state: RunState, resolved = false): ReviewResult {
@@ -26,7 +27,7 @@ function review(state: RunState, resolved = false): ReviewResult {
     version: state.currentVersion,
     scope: state.scope,
     validations: [],
-    limitations: ["合成结果"],
+    limitations: ["测试夹具结果"],
     issues: [
       {
         id: state.issues[0]?.id ?? "candidate",
@@ -34,9 +35,9 @@ function review(state: RunState, resolved = false): ReviewResult {
         version: state.currentVersion,
         startLine: 1,
         endLine: 1,
-        description: "合成问题",
-        evidence: "合成证据",
-        suggestion: "合成建议",
+        description: "测试夹具问题",
+        evidence: "测试夹具证据",
+        suggestion: "测试夹具建议",
         severity: "blocking",
         status: resolved ? "resolved" : "open",
       },
@@ -77,7 +78,7 @@ function runner(
       const decision = await requestApproval(command);
       result.validations = [
         {
-          name: "合成验证",
+          name: "测试夹具验证",
           status: decision === "approved" ? "passed" : "missing",
           required: true,
         },
@@ -348,7 +349,7 @@ test("复审遗漏原问题保留无法确认，不凭遗漏消除问题", async
   await engine.start();
   assert.equal(engine.snapshot().conclusion, "issues_remaining");
   assert.equal(engine.snapshot().issues[0].status, "unconfirmed");
-  assert.equal(engine.snapshot().issues[0].version, "demo-v0");
+  assert.equal(engine.snapshot().issues[0].version, "test-v0");
 });
 test("审核绑定哈希且只能消费一次；后续请求使用新标识", async () => {
   const engine = new WorkflowEngine(
@@ -446,7 +447,7 @@ test("取消后迟到结果不更新状态且不能重新启动", async () => {
   engine.cancel();
   release({
     type: "material",
-    version: "demo-v0",
+    version: "test-v0",
     paths: ["src/math.ts", "src/math.test.ts"],
   });
   await done;
@@ -490,13 +491,13 @@ test("报告包含轮次、范围、验证限制及独立应用状态", async ()
   await engine.start();
   const report = markdownReport(engine.snapshot());
   for (const token of [
-    "合成",
-    "未调用模型",
-    "未执行命令",
+    "审查与修复报告",
+    "未启用文件与网络隔离",
+    "模型调用：0 次",
     "未应用",
     "第 1 轮",
     "最终问题",
-    "demo-v0",
+    "test-v0",
   ])
     assert.ok(report.includes(token));
 });

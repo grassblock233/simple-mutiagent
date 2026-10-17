@@ -3,9 +3,8 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
-import { WorkflowEngine } from "../workflow/engine";
-import { demoRunner } from "../workflow/demo";
-import { demoRequestSchema, workflowSchema, type RunState } from "../workflow/schema";
+import { WorkflowEngine, type CommandSpec } from "../workflow/engine";
+import { workflowSchema, type RunState } from "../workflow/schema";
 import { Storage } from "./storage";
 import { HttpError } from "./security";
 import { WorkspaceRegistry, WorkingCopy } from "../runtime/workspace";
@@ -48,8 +47,7 @@ class RunManager {
   }
   async create(value: unknown, owner: string): Promise<RunState> {
     await this.ready();
-    const isReal = (value as { mode?: unknown })?.mode === "real";
-    const parsed = isReal ? realRequestSchema.safeParse(value) : demoRequestSchema.safeParse(value);
+    const parsed = realRequestSchema.safeParse(value);
     if (!parsed.success) throw new HttpError(400, "运行配置无效");
     const input = parsed.data;
     const key = `${owner}:${input.requestId}`;
@@ -64,7 +62,7 @@ class RunManager {
     this.requests.set(key, { hash, task });
     try { return await task; } catch (error) { this.requests.delete(key); throw error; }
   }
-  private async start(input: z.infer<typeof realRequestSchema> | z.infer<typeof demoRequestSchema>, owner: string) {
+  private async start(input: z.infer<typeof realRequestSchema>, owner: string) {
     if (this.starting.has(owner) || [...this.runs.values()].some(e => e.owner === owner && active.includes(e.engine.snapshot().status))) throw new HttpError(409, "请先结束当前运行");
     if (this.runs.size >= 50) throw new HttpError(429, "本进程最多保留 50 次运行，请保存报告后重启服务");
     this.starting.add(owner);
@@ -72,27 +70,22 @@ class RunManager {
     try {
       const id = randomUUID();
       const entry: Entry = { owner, engine: undefined!, listeners: new Set(), writes: Promise.resolve(), storageFailed: false };
-      let runner = demoRunner;
-      let evidence: RuntimeEvidence | undefined;
-      let real: NonNullable<ConstructorParameters<typeof WorkflowEngine>[2]>["real"];
-      if ("mode" in input) {
-        if (!process.env.DEEPSEEK_API_KEY) throw new HttpError(400, "请先在后台配置 DEEPSEEK_API_KEY");
-        const workspace = this.workspaces.get(input.workspaceId, owner);
-        workspaceRoot = workspace.root;
-        if (this.workspaceStarting.has(workspace.root) || [...this.runs.values()].some(e => e.copy?.workspace.root === workspace.root && active.includes(e.engine.snapshot().status))) throw new HttpError(409, "同一工作区已有活动运行");
-        this.workspaceStarting.add(workspace.root);
-        const parent = path.join(this.storage.root, "copies");
-        await mkdir(parent, { recursive: true, mode: 0o700 });
-        const copy = await WorkingCopy.create(workspace, input.selection, path.join(parent, id));
-        entry.copy = copy;
-        await this.storage.saveBaseline(id, copy.baseline);
-        const commands = await availableCommands(copy);
-        evidence = { reads: [], commands: [], usage: [] };
-        runner = createAgentRunner(copy, commands, createDeepSeekClient({ apiKey: process.env.DEEPSEEK_API_KEY, onUncertain: usage => evidence!.usage.push(usage) }), evidence);
-        real = { scope: copy.scope(), baselineVersion: version(copy.baseline), workspace: { id: workspace.id, root: workspace.root, selection: copy.selection, excludes: workspace.excludes }, allowPath: p => copy.canWrite(p), allowCommand: c => c.cwd === copy.root && commands.some(a => a.executable === c.executable && JSON.stringify(a.args) === JSON.stringify(c.args)) };
-      }
+      if (!process.env.DEEPSEEK_API_KEY) throw new HttpError(400, "请先在后台配置 DEEPSEEK_API_KEY");
+      const workspace = this.workspaces.get(input.workspaceId, owner);
+      workspaceRoot = workspace.root;
+      if (this.workspaceStarting.has(workspace.root) || [...this.runs.values()].some(e => e.copy?.workspace.root === workspace.root && active.includes(e.engine.snapshot().status))) throw new HttpError(409, "同一工作区已有活动运行");
+      this.workspaceStarting.add(workspace.root);
+      const parent = path.join(this.storage.root, "copies");
+      await mkdir(parent, { recursive: true, mode: 0o700 });
+      const copy = await WorkingCopy.create(workspace, input.selection, path.join(parent, id));
+      entry.copy = copy;
+      await this.storage.saveBaseline(id, copy.baseline);
+      const commands = await availableCommands(copy);
+      const evidence: RuntimeEvidence = { reads: [], commands: [], usage: [] };
+      const runner = createAgentRunner(copy, commands, createDeepSeekClient({ apiKey: process.env.DEEPSEEK_API_KEY, onUncertain: usage => evidence.usage.push(usage) }), evidence);
+      const real = { scope: copy.scope(), baselineVersion: version(copy.baseline), workspace: { id: workspace.id, root: workspace.root, selection: copy.selection, excludes: workspace.excludes }, allowPath: (p: string) => copy.canWrite(p), allowCommand: (c: CommandSpec) => c.cwd === copy.root && commands.some(a => a.executable === c.executable && JSON.stringify(a.args) === JSON.stringify(c.args)) };
       entry.engine = new WorkflowEngine(input.workflow, runner, {
-        id, real, scenario: "scenario" in input ? input.scenario : undefined, repairMode: input.repairMode,
+        id, real, repairMode: input.repairMode,
         onChange: raw => this.persist(entry, raw),
       });
       await this.storage.saveRun(entry.engine.snapshot());
@@ -100,8 +93,8 @@ class RunManager {
       void entry.engine.start().then(async () => {
         if (!entry.copy) return;
         try {
-          await evidence?.pending;
-          if (evidence) entry.engine.captureEvidence({ reads: evidence.reads, commands: evidence.commands, usage: evidence.usage });
+          await evidence.pending;
+          entry.engine.captureEvidence({ reads: evidence.reads, commands: evidence.commands, usage: evidence.usage });
           const changes = await entry.copy.changes();
           entry.engine.updateApplication({ applicationStatus: "not_applied", changes });
           const state = entry.engine.snapshot();
@@ -205,18 +198,20 @@ class RunManager {
       if (transaction.status === "needs_recovery") state.applicationError = transaction.error;
       if (state.applicationStatus === "apply_failed") { state.reviewConclusion ??= state.conclusion; state.conclusion = "execution_failed"; state.status = "failed"; }
     }
-    entry.engine = new WorkflowEngine(state.workflow, async () => { throw new Error("历史运行禁止自动重放"); }, { onChange: raw => this.persist(entry, raw) });
+    entry.engine = new WorkflowEngine(state.workflow, async () => { throw new Error("历史运行禁止自动重放"); }, { real: { scope: state.scope, baselineVersion: state.baselineVersion, workspace: state.workspace!, allowPath: () => false, allowCommand: () => false }, onChange: raw => this.persist(entry, raw) });
     entry.engine.restoreSnapshot(state);
     this.runs.set(id, entry);
     return this.snapshot(id, owner);
   }
   async remove(id: string, owner: string) {
-    await this.restore(id, owner);
-    const entry = this.get(id, owner);
-    const state = entry.engine.snapshot();
-    if (active.includes(state.status) || entry.operation) throw new HttpError(409, "请先结束运行或文件事务");
+    await this.ready();
+    const entry = this.runs.has(id) ? this.get(id, owner) : undefined;
+    let state: RunState;
+    try { state = entry ? entry.engine.snapshot() : await this.storage.loadRun(id); }
+    catch { throw new HttpError(404, "历史记录不存在或格式无效"); }
+    if (active.includes(state.status) || entry?.operation) throw new HttpError(409, "请先结束运行或文件事务");
     if (state.transaction?.status === "needs_recovery") throw new HttpError(409, "未解决恢复事务不能删除，请先人工处理备份");
-    await entry.writes;
+    if (entry) await entry.writes;
     await this.transactions.removeRun(id);
     await this.storage.removeRun(id);
     this.runs.delete(id);
