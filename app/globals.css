@@ -1,17 +1,17 @@
 @import "tailwindcss";
 :root {
   color-scheme: light;
-  --bg: #f5f6f8;
+  --bg: #eef1f5;
   --panel: #fff;
-  --surface: #f8f9fb;
-  --canvas: #f6f7fa;
-  --line: #e5e7ed;
-  --line-strong: #d0d5e0;
-  --text: #242836;
-  --muted: #737b8c;
-  --accent: #5b55d9;
-  --accent-hover: #4e47c6;
-  --accent-soft: #eeedfc;
+  --surface: #f1f4f8;
+  --canvas: #f7f9fc;
+  --line: #dfe4ec;
+  --line-strong: #c7cfdb;
+  --text: #263244;
+  --muted: #6b7789;
+  --accent: #256ee5;
+  --accent-hover: #1d5fc9;
+  --accent-soft: #e8f0fe;
   --accent-text: #fff;
   --success: #24866a;
   --success-soft: #edf8f3;
@@ -21,26 +21,26 @@
   --danger-soft: #fff0f1;
   --loop: #8a68bd;
   --edge: #9aa3b8;
-  --canvas-dot: #d7dce7;
-  --minimap-node: #bbc2d4;
-  --minimap-mask: #f6f7faad;
-  --shadow: 0 2px 4px #20253705, 0 8px 24px #20253706;
+  --canvas-dot: #d7dfe9;
+  --minimap-node: #b0c1d9;
+  --minimap-mask: #f7f9fcad;
+  --shadow: 0 1px 3px #2025370a;
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #17181d;
-  --panel: #1d1e25;
-  --surface: #24252e;
-  --canvas: #18191f;
-  --line: #30323d;
-  --line-strong: #454958;
-  --text: #ecedf4;
-  --muted: #989eaf;
-  --accent: #928bff;
-  --accent-hover: #a69fff;
-  --accent-soft: #302d49;
-  --accent-text: #181629;
+  --bg: #11161d;
+  --panel: #171d25;
+  --surface: #1e2630;
+  --canvas: #0d1218;
+  --line: #29323e;
+  --line-strong: #3d4959;
+  --text: #d3dce8;
+  --muted: #8b99ac;
+  --accent: #4b94ff;
+  --accent-hover: #74acff;
+  --accent-soft: #1b304d;
+  --accent-text: #0b1524;
   --success: #74cead;
   --success-soft: #233b32;
   --warning: #e7be78;
@@ -48,27 +48,27 @@
   --danger: #ef929e;
   --danger-soft: #3d262d;
   --loop: #bf9aef;
-  --edge: #626b81;
-  --canvas-dot: #333641;
-  --minimap-node: #52596c;
-  --minimap-mask: #18191fba;
-  --shadow: 0 2px 4px #0002, 0 8px 24px #0002;
+  --edge: #64748b;
+  --canvas-dot: #26303d;
+  --minimap-node: #4b5e77;
+  --minimap-mask: #0d1218ba;
+  --shadow: 0 1px 3px #0002;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme]) {
     color-scheme: dark;
-    --bg: #17181d;
-    --panel: #1d1e25;
-    --surface: #24252e;
-    --canvas: #18191f;
-    --line: #30323d;
-    --line-strong: #454958;
-    --text: #ecedf4;
-    --muted: #989eaf;
-    --accent: #928bff;
-    --accent-hover: #a69fff;
-    --accent-soft: #302d49;
-    --accent-text: #181629;
+    --bg: #11161d;
+    --panel: #171d25;
+    --surface: #1e2630;
+    --canvas: #0d1218;
+    --line: #29323e;
+    --line-strong: #3d4959;
+    --text: #d3dce8;
+    --muted: #8b99ac;
+    --accent: #4b94ff;
+    --accent-hover: #74acff;
+    --accent-soft: #1b304d;
+    --accent-text: #0b1524;
     --success: #74cead;
     --success-soft: #233b32;
     --warning: #e7be78;
@@ -76,11 +76,11 @@
     --danger: #ef929e;
     --danger-soft: #3d262d;
     --loop: #bf9aef;
-    --edge: #626b81;
-    --canvas-dot: #333641;
-    --minimap-node: #52596c;
-    --minimap-mask: #18191fba;
-    --shadow: 0 2px 4px #0002, 0 8px 24px #0002;
+    --edge: #64748b;
+    --canvas-dot: #26303d;
+    --minimap-node: #4b5e77;
+    --minimap-mask: #0d1218ba;
+    --shadow: 0 1px 3px #0002;
   }
 }
 * {
@@ -111,20 +111,22 @@ button,
   align-items: center;
   justify-content: center;
   gap: 7px;
-  min-height: 34px;
-  padding: 6px 11px;
+  min-height: 30px;
+  padding: 4px 9px;
   border: 1px solid var(--line);
-  border-radius: 7px;
+  border-radius: 4px;
   color: var(--text);
   background: var(--panel);
   cursor: pointer;
   white-space: nowrap;
 }
 button {
-  transition: transform 150ms var(--ease-out);
+  transition:
+    background 120ms ease,
+    border-color 120ms ease;
 }
 button:active:not(:disabled):not(:focus-visible) {
-  transform: scale(0.97);
+  filter: brightness(0.96);
 }
 button:disabled {
   opacity: 0.46;
@@ -154,11 +156,11 @@ input,
 select,
 textarea {
   width: 100%;
-  padding: 8px 10px;
-  min-height: 36px;
+  padding: 6px 8px;
+  min-height: 32px;
   background: var(--panel);
   border: 1px solid var(--line-strong);
-  border-radius: 7px;
+  border-radius: 4px;
   color: var(--text);
 }
 input::placeholder,
@@ -189,7 +191,7 @@ textarea {
 }
 label {
   display: block;
-  margin-top: 17px;
+  margin-top: 14px;
   font-size: 12px;
   color: var(--text);
   font-weight: 500;

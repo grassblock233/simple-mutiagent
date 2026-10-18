@@ -2,6 +2,7 @@
 import type { Dispatch, SetStateAction } from "react";
 import { cx } from "./studio-styles";
 import { Icon, EmptyState, handleTabKeys, nodeIcons } from "./studio-ui";
+import { ProjectFileTree } from "./project-file-tree";
 import { createNode } from "@/lib/workflow/templates";
 import { labels, nodeKinds, type Workflow } from "@/lib/workflow/schema";
 import type {
@@ -29,6 +30,7 @@ type Props = StudioActions & {
   setWorkflow: Setter<Workflow>;
   select: Setter<string>;
   onAdded: () => void;
+  onOpened: () => void;
 };
 export function WorkspacePanel({
   tab,
@@ -47,6 +49,7 @@ export function WorkspacePanel({
   setWorkflow,
   select,
   onAdded,
+  onOpened,
   csrf,
   busy,
   action,
@@ -121,11 +124,10 @@ export function WorkspacePanel({
                       }),
                 });
                 setWorkspace(next);
+                onOpened();
                 setSelection([]);
                 setExcludes(next.excludes.join("\n"));
-                setNotice(
-                  "项目已打开，请选择范围。",
-                );
+                setNotice("项目已打开，请选择范围。");
               })
             }
           >
@@ -183,9 +185,7 @@ export function WorkspacePanel({
             placeholder="打开项目后展示默认规则；每行一条"
             onChange={(e) => setExcludes(e.target.value)}
           />
-          <p className={cx("help")}>
-            修改后重新打开项目生效。
-          </p>
+          <p className={cx("help")}>修改后重新打开项目生效。</p>
         </details>
         <h3>审查与修改范围</h3>
         {workspace ? (
@@ -193,68 +193,13 @@ export function WorkspacePanel({
             <small className={cx("path-label")} title={workspace.root}>
               {workspace.root}
             </small>
-            <div className={cx("file-tree real-file-tree")}>
-              {[
-                ...new Set(
-                  workspace.files.flatMap((f) =>
-                    f
-                      .split("/")
-                      .slice(0, -1)
-                      .map((_, i, parts) => parts.slice(0, i + 1).join("/")),
-                  ),
-                ),
-              ]
-                .sort()
-                .map((directory) => (
-                  <label key={directory} className={cx("scope-row")}>
-                    <input
-                      type="checkbox"
-                      aria-label={`选择目录 ${directory}`}
-                      checked={selection.some(
-                        (s) => s.directory && s.path === directory,
-                      )}
-                      onChange={(e) =>
-                        setSelection((old) =>
-                          e.target.checked
-                            ? [
-                                ...old.filter((s) => s.path !== directory),
-                                { path: directory, directory: true },
-                              ]
-                            : old.filter((s) => s.path !== directory),
-                        )
-                      }
-                    />
-                    ▾ {directory}/
-                  </label>
-                ))}
-              {workspace.files.map((file) => (
-                <label key={file} className={cx("scope-row")}>
-                  <input
-                    type="checkbox"
-                    aria-label={`选择文件 ${file}`}
-                    checked={selection.some(
-                      (s) =>
-                        s.path === file ||
-                        (s.directory && file.startsWith(s.path + "/")),
-                    )}
-                    disabled={selection.some(
-                      (s) => s.directory && file.startsWith(s.path + "/"),
-                    )}
-                    onChange={(e) =>
-                      setSelection((old) =>
-                        e.target.checked
-                          ? [...old, { path: file, directory: false }]
-                          : old.filter((s) => s.path !== file),
-                      )
-                    }
-                  />
-                  {file}
-                </label>
-              ))}
-            </div>
-            <p className={cx("help")}>
-              已选 {selection.length} 项
-            </p>
+            <ProjectFileTree
+              key={workspace.id}
+              files={workspace.files}
+              selection={selection}
+              setSelection={setSelection}
+            />
+            <p className={cx("help")}>已选 {selection.length} 项</p>
           </>
         ) : (
           <EmptyState

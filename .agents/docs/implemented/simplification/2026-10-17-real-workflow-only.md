@@ -25,7 +25,8 @@ Status: implemented
 ### 历史审计
 
 - [MVP 记录](../feature/2026-10-14-simple-workflow-mvp.md)：部分重叠；保留历史演练阶段、真实联网证据和隔离延期取舍；MVP 接入时保留产品演练的决定由本文替代，互链说明现状。
-- [工作台记录](../feature/2026-10-14-workflow-studio-ui.md)：部分重叠；保留布局与既有浏览器证据，运行设置只支持真实工作流，互链说明现状。
+- [工作台记录](../feature/2026-10-14-workflow-studio-ui.md)：部分重叠；保留既有主题、文案及历史浏览器证据，运行设置只支持真实工作流，互链说明现状。
+- [桌面 IDE 工作台记录](../feature/2026-10-18-desktop-workbench.md)：部分重叠，互链；当前导航、面板布局、最低视口及对应验证由该记录持有，运行能力和真实运行协议继续以本文为准。
 - [Turbopack 缓存故障](../bug-fix/2026-10-14-turbopack-cached-port-permission-error.md)：无关；构建缓存排障结论保留。
 - proposed、rejected 下没有现存笔记，无过时提案需要迁移。
 

@@ -99,7 +99,11 @@ export function HistoryPanel({
                   setHistory((old) => old.filter((h) => h.id !== item.id));
                   if (run?.id === item.id) {
                     setRun(undefined);
-                    localStorage.removeItem("simple-workflow-last-run");
+                    try {
+                      localStorage.removeItem("simple-workflow-last-run");
+                    } catch {
+                      /* Storage is optional. */
+                    }
                   }
                   setNotice("历史及备份已删除。");
                 })

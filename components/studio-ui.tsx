@@ -2,6 +2,10 @@ import type { KeyboardEvent, ReactNode } from "react";
 import type { NodeKind } from "@/lib/workflow/schema";
 import { cx } from "./studio-styles";
 const paths = {
+  home: "M3 10 12 3l9 7 M5 9v12h14V9 M9 21v-8h6v8",
+  "chevron-right": "m9 6 6 6-6 6",
+  "arrow-right": "M4 12h16 M14 6l6 6-6 6",
+  "panel-right": "M3 4h18v16H3z M15 4v16",
   workflow: "M5 4h5v5H5z M14 15h5v5h-5z M14 4h5v5h-5z M7.5 9v8.5H14 M10 6.5h4",
   folder: "M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v10H3z",
   layers: "m12 3 9 5-9 5-9-5z M3 12l9 5 9-5 M3 16l9 5 9-5",

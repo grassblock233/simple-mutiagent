@@ -51,11 +51,15 @@ Agent 提交的补丁先写入副本，最终应用前原项目须与启动基�
 
 ## 工作台
 
-顶栏切换“流程编辑”和“运行历史”，右上角选择系统、浅色或深色主题。编辑页左侧提供工作区和节点库，右侧在节点配置与运行设置之间切换。启动条件不足时，运行按钮下方说明原因。
+打开页面先进入欢迎工作台，可打开本地项目、创建完整／仅审查流程、继续编辑或查看历史。左侧图标栏切换欢迎页、项目文件、节点库和运行历史，底部提供运行设置；右上角保留系统、浅色或深色主题选择。
 
-底部结果区域显示执行记录、节点输入/输出和差异，可展开或收起。待审核命令独立显示，收起结果或切换历史仍可批准或拒绝；切换历史保留流程草稿和运行连接。点击历史“查看”展开对应结果。
+编辑页采用紧凑的桌面工作台布局：左侧资源面板、中间工作流画布、右侧节点配置／运行设置，中间下方为执行结果。项目文件按可折叠目录树展示；折叠不改变选择，选择目录后其后代显示为已授权且不能单独取消。启动条件不足时，运行按钮下方说明原因。
 
-平板通过画布左侧按钮打开资源抽屉；手机另有“配置”入口，两侧面板及展开的结果使用全屏视图。抽屉和手机全屏结果支持 Escape、焦点约束和关闭后焦点恢复，界面遵循系统减少动效偏好。
+左右面板和底部结果均可收起。拖动分隔线调整宽度或高度，也可用 Tab 聚焦分隔线后按方向键调整，Shift 加速，Home／End 调整到当前最小／最大尺寸。存储可用时，尺寸和显隐保存在本机浏览器，可通过顶栏“重置布局”恢复默认；缩小窗口会限制面板尺寸以保留画布空间。较高窗口的结果高度刷新后可能缩小，最低支持尺寸内也存在收起工具栏遮挡，见[已知布局限制](.agents/docs/implemented/feature/2026-10-18-desktop-workbench.md#已知限制与缺陷)。
+
+底部结果区域显示执行记录、节点输入／输出和差异。待审核命令独立显示，收起结果或切换欢迎页、历史页仍可批准或拒绝。切换视图保留流程草稿、画布视口、未提交的节点 JSON 配置和运行连接。点击历史“查看”展开对应结果。
+
+界面仅在移动端视图（浏览器内容区宽度小于 768px）显示限制提示，不设窗口高度门槛；宽度达到 768px 的桌面或平板视图可继续操作。移动端视图下需加宽窗口后处理审核；后台仍保留运行状态和事件连接。刷新页面重新显示欢迎页，并按现有规则恢复上次运行显示；工作流草稿仍需主动保存。界面遵循系统减少动效偏好。
 
 ## 文件与检查限制
 
@@ -63,13 +67,13 @@ Agent 提交的补丁先写入副本，最终应用前原项目须与启动基�
 
 命令白名单在启动时固定，包括最多 30 个发现的 `.test/.spec.[cm]js/ts` 文件（以 Node `--test` 运行），以及找到 npm 时项目已声明的 `test/check/lint/typecheck/build` 脚本。不接受自由 Shell，不自动安装依赖，副本也不携带 `node_modules`。缺失模块或程序记为验证不可用，其他执行失败如实记录。依赖第三方包的完整工程检查通常无法在副本中完成，可先使用[无第三方依赖的示例](docs/examples/README.md)。npm 离线标志不能限制项目脚本联网。
 
-| 项目 | 限制 |
-| --- | --- |
-| 副本 | 最多 1000 个文件、16 MiB 总文本、1 MiB/文件 |
-| 读取 | 单次 256 KiB，每节点累计 512 KiB |
-| 模型与工具 | 每节点最多 21 轮模型请求、20 次工具调用，失败和拒绝也计入 |
-| 输入与输出 | 输入历史最多 64 KiB，输出由节点配置，默认 8192 tokens |
-| 耗时 | 每节点 10 分钟，含审核等待；每次模型请求和命令各 120 秒 |
+| 项目       | 限制                                                                               |
+| ---------- | ---------------------------------------------------------------------------------- |
+| 副本       | 最多 1000 个文件、16 MiB 总文本、1 MiB/文件                                        |
+| 读取       | 单次 256 KiB，每节点累计 512 KiB                                                   |
+| 模型与工具 | 每节点最多 21 轮模型请求、20 次工具调用，失败和拒绝也计入                          |
+| 输入与输出 | 输入历史最多 64 KiB，输出由节点配置，默认 8192 tokens                              |
+| 耗时       | 每节点 10 分钟，含审核等待；每次模型请求和命令各 120 秒                            |
 | 重试与日志 | 模型请求遇到 429/5xx 最多尝试 3 次；命令标准输出和错误输出各最多 1 MiB，截断会标明 |
 
 命令使用最小环境，不主动注入密钥。Linux 进程组用于取消和超时清理，无法约束主动脱离进程组的程序。
@@ -78,15 +82,15 @@ Agent 提交的补丁先写入副本，最终应用前原项目须与启动基�
 
 运行数据默认保存在 `~/.local/share/simple-mutiagent/`，也可通过 `SIMPLE_WORKFLOW_DATA_DIR` 指定。文件权限为 `0600`，目录为 `0700`。日志、差异、基线和备份可能包含源码，应按敏感材料管理。
 
-| 路径 | 内容 |
-| --- | --- |
-| `workflow.json` | 工作流草稿 |
-| `runs/<id>.json` | 快照、节点结果和审核 |
-| `events/<id>.jsonl` | 有序事件 |
-| `reports/<id>.md`、`diffs/<id>.json` | 报告与最终差异 |
-| `baselines/<id>.json` | 原始文本基线 |
-| `copies/<id>/` | 活动、失败或待确认副本 |
-| `transactions/<transaction-id>.json` | 应用日志与原内容备份 |
+| 路径                                 | 内容                   |
+| ------------------------------------ | ---------------------- |
+| `workflow.json`                      | 工作流草稿             |
+| `runs/<id>.json`                     | 快照、节点结果和审核   |
+| `events/<id>.jsonl`                  | 有序事件               |
+| `reports/<id>.md`、`diffs/<id>.json` | 报告与最终差异         |
+| `baselines/<id>.json`                | 原始文本基线           |
+| `copies/<id>/`                       | 活动、失败或待确认副本 |
+| `transactions/<transaction-id>.json` | 应用日志与原内容备份   |
 
 刷新页面可恢复选中的运行快照。后台重启只恢复历史查看、已完成事务的撤销，以及保留副本的应用确认，不续跑模型或命令。
 
@@ -119,4 +123,4 @@ pnpm test:live            # 先 build；五种联网场景，自动批准临时�
 
 `test:live` 使用临时示例副本，结束后清理，并更新[联网报告样例](docs/examples/reports/live-verification.json)。自动批准仅用于验收脚本，正常界面仍逐次人工审核。调用次数和费用会变化；用量缺失或失败结果未知时，报告不估算费用。
 
-验证结果与适用范围见[交付修正记录](.agents/docs/implemented/simplification/2026-10-17-real-workflow-only.md#verification)、[MVP 联网证据](.agents/docs/implemented/feature/2026-10-14-simple-workflow-mvp.md#交付与验证证据)和[工作台浏览器验证](.agents/docs/implemented/feature/2026-10-14-workflow-studio-ui.md#verification)。实现取舍和 AC-01–AC-18 核对见[MVP 记录](.agents/docs/implemented/feature/2026-10-14-simple-workflow-mvp.md)；文件与网络隔离的延期及恢复条件见[隔离决定](.agents/docs/implemented/feature/2026-10-14-simple-workflow-mvp.md#隔离延期与恢复条件)。构建缓存问题见[Turbopack 故障记录](.agents/docs/implemented/bug-fix/2026-10-14-turbopack-cached-port-permission-error.md)。
+验证结果与适用范围见[交付修正记录](.agents/docs/implemented/simplification/2026-10-17-real-workflow-only.md#verification)、[MVP 联网证据](.agents/docs/implemented/feature/2026-10-14-simple-workflow-mvp.md#交付与验证证据)、[当前桌面工作台验证](.agents/docs/implemented/feature/2026-10-18-desktop-workbench.md#verification)及[旧版工作台历史验证](.agents/docs/implemented/feature/2026-10-14-workflow-studio-ui.md#verification)。实现取舍和 AC-01–AC-18 核对见[MVP 记录](.agents/docs/implemented/feature/2026-10-14-simple-workflow-mvp.md)；文件与网络隔离的延期及恢复条件见[隔离决定](.agents/docs/implemented/feature/2026-10-14-simple-workflow-mvp.md#隔离延期与恢复条件)。构建缓存问题见[Turbopack 故障记录](.agents/docs/implemented/bug-fix/2026-10-14-turbopack-cached-port-permission-error.md)。
