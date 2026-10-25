@@ -27,7 +27,7 @@ export type RunnerContext = {
   state: RunState;
   signal: AbortSignal;
   syncVersion: (version: string) => void;
-  update: (patch: Partial<Pick<RunState, "reads" | "commands" | "usage" | "changes">>, message: string) => void;
+  update: (patch: Partial<Pick<RunState, "reads" | "commands" | "usage" | "changes" | "compactions">>, message: string) => void;
   requestApproval: (command: CommandSpec) => Promise<"approved" | "rejected">;
 };
 export type NodeRunner = (context: RunnerContext) => Promise<unknown>;
@@ -102,7 +102,7 @@ export class WorkflowEngine {
     if (this.state.status === "awaiting_confirmation" && patch.applicationStatus === "applied") this.state.status = "completed";
     this.emit("application_changed", patch.applicationError ?? `文件状态：${patch.applicationStatus}`);
   }
-  captureEvidence(patch: Partial<Pick<RunState, "reads" | "commands" | "usage" | "changes">>) {
+  captureEvidence(patch: Partial<Pick<RunState, "reads" | "commands" | "usage" | "changes" | "compactions">>) {
     Object.assign(this.state, structuredClone(patch));
     this.emit("evidence_saved", "最终工具证据已保存（包含取消与失败结果）");
   }
@@ -326,7 +326,6 @@ export class WorkflowEngine {
     input: Record<string, NodeOutput>,
     record: NodeRecord,
   ) {
-    let tools = 0;
     const nodeAbort = new AbortController();
     const signal = AbortSignal.any([this.abort.signal, nodeAbort.signal]);
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -366,7 +365,6 @@ export class WorkflowEngine {
               this.state.round !== record.round
             )
               throw new Error("工具请求所属节点已结束或过期");
-            if (++tools > 20) throw new Error("超过节点工具请求预算");
             return this.requestApproval(command);
           },
         }),

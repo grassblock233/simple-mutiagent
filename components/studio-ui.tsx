@@ -2,6 +2,7 @@ import type { KeyboardEvent, ReactNode } from "react";
 import type { NodeKind } from "@/lib/workflow/schema";
 import { cx } from "./studio-styles";
 const paths = {
+  copy: "M9 9h12v12H9z M15 9V3H3v12h6",
   home: "M3 10 12 3l9 7 M5 9v12h14V9 M9 21v-8h6v8",
   "chevron-right": "m9 6 6 6-6 6",
   "arrow-right": "M4 12h16 M14 6l6 6-6 6",

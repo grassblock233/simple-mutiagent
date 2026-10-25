@@ -62,3 +62,27 @@ export function scopeState(
       selection.some((scope) => scope.path.startsWith(entry.path + "/")),
   };
 }
+
+export type VisibleEntry = FileTreeEntry & { depth: number };
+export function visibleEntries(tree: FileTreeEntry[], expanded: Set<string>, query: string): VisibleEntry[] {
+  const needle = query.trim().toLocaleLowerCase();
+  const result: VisibleEntry[] = [];
+  function visit(entry: FileTreeEntry, depth: number): boolean {
+    if (needle) {
+      const matches = entry.path.toLocaleLowerCase().includes(needle);
+      const children = entry.children.filter(child => matches || descendantMatch(child));
+      if (!matches && !children.length) return false;
+      result.push({ ...entry, depth }); children.forEach(child => visit(child, depth + 1)); return true;
+    }
+    result.push({ ...entry, depth });
+    if (entry.directory && expanded.has(entry.path)) entry.children.forEach(child => visit(child, depth+1));
+    return true;
+  }
+  function descendantMatch(entry: FileTreeEntry): boolean { return entry.path.toLocaleLowerCase().includes(needle) || entry.children.some(descendantMatch); }
+  tree.forEach(entry => visit(entry, 0)); return result;
+}
+export function coveredFiles(files: string[], selection: FileScope[]) {
+  const exact = new Set(selection.filter(s => !s.directory).map(s => s.path));
+  const directories = new Set(selection.filter(s => s.directory).map(s => s.path));
+  return files.filter(file => exact.has(file) || file.split("/").some((_,i,parts) => directories.has(parts.slice(0,i+1).join("/"))));
+}

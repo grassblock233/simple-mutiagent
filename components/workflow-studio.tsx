@@ -3,6 +3,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useLayoutEffect,
   useRef,
   useState,
   type CSSProperties,
@@ -49,6 +50,8 @@ import { Icon } from "./studio-ui";
 import { ThemeSelect, useResolvedTheme } from "./theme-select";
 import { cx } from "./studio-styles";
 import { useStudioLayout } from "./use-studio-layout";
+import { draftKey, readDraft, persistDraft, saveBeforeReplace, workflowFingerprint, executionKey, hasPendingJson, type DraftData, type JsonBuffer } from "@/lib/studio/draft";
+import { openWorkspace } from "@/lib/studio/workspace-stream";
 import { defaultLayout } from "@/lib/studio/layout";
 import { PanelResizer } from "./panel-resizer";
 import { WelcomePanel } from "./welcome-panel";
@@ -105,6 +108,7 @@ function Studio() {
     (value: SetStateAction<boolean>) =>
       setLayout((old) => ({
         ...old,
+        activeSide: "left",
         leftOpen: typeof value === "function" ? value(old.leftOpen) : value,
       })),
     [setLayout],
@@ -113,6 +117,7 @@ function Studio() {
     (value: SetStateAction<boolean>) =>
       setLayout((old) => ({
         ...old,
+        activeSide: "right",
         rightOpen: typeof value === "function" ? value(old.rightOpen) : value,
       })),
     [setLayout],
@@ -126,7 +131,26 @@ function Studio() {
     [setLayout],
   );
   const [canvasRevision, setCanvasRevision] = useState(0);
-  const [workflow, setWorkflow] = useState<Workflow>(() => createTemplate());
+  const [draftWorkflow, setDraftWorkflow] = useState<Workflow>(() => createTemplate());
+  const [draftId, setDraftId] = useState("initial");
+  const [revision, setRevision] = useState(0);
+  const [buffers, setBuffers] = useState<Record<string, JsonBuffer>>({});
+  const [savedFingerprint, setSavedFingerprint] = useState("");
+  const [runBinding, setRunBinding] = useState<DraftData["runBinding"]>();
+  const [snapshotView, setSnapshotView] = useState(false);
+  const [undoDraft, setUndoDraft] = useState<DraftData>();
+  const [replacement, setReplacement] = useState<{workflow:Workflow;selected:string;saved:boolean}>();
+  const [hydrated, setHydrated] = useState(false);
+  const [storageFailed, setStorageFailed] = useState(false);
+  const [localSaved, setLocalSaved] = useState(false);
+  const [restoring, setRestoring] = useState(false);
+  const [restoredRoot, setRestoredRoot] = useState<string>();
+  const [restoreRequest, setRestoreRequest] = useState<{root:string;excludes?:string}>();
+  const [restoreStats, setRestoreStats] = useState<import("@/lib/workspace-rules").ScanStats>();
+  const restoreAbort = useRef<AbortController | null>(null);
+  const setWorkflow = useCallback((value: SetStateAction<Workflow>) => {
+    setDraftWorkflow(value); setRevision(old=>old+1); setLocalSaved(false);
+  }, []);
   const [selectedId, select] = useState("review");
   const [selectedEdge, selectEdge] = useState<string>();
   const [measurements, setMeasurements] = useState<
@@ -153,6 +177,60 @@ function Studio() {
   const [noticeError, setNoticeError] = useState(false);
   const leftRef = useRef<HTMLElement>(null);
   const importRef = useRef<HTMLInputElement>(null);
+  const workflow = snapshotView && run ? run.workflow : draftWorkflow;
+  const pendingJson = hasPendingJson(draftWorkflow,buffers);
+  const dirty = workflowFingerprint(draftWorkflow) !== savedFingerprint || pendingJson;
+  const currentExecutionKey = executionKey(draftWorkflow,workspace?.root,excludes,selection,repairMode);
+  const matchesRun = Boolean(run && runBinding?.runId === run.id && runBinding.draftId === draftId && runBinding.revision === revision && runBinding.executionKey === currentExecutionKey && !pendingJson);
+  const draftData: DraftData = {id:draftId,revision,workflow:draftWorkflow,workspacePath,openedRoot:workspace?.root ?? restoredRoot,excludes,selection,repairMode,selectedId,buffers,savedFingerprint,runBinding};
+  const draftRef = useRef(draftData);
+  const undoRef = useRef(undoDraft);
+  useLayoutEffect(() => { draftRef.current = draftData; undoRef.current = undoDraft; });
+  function restoreDraft(data:DraftData) {
+    restoreAbort.current?.abort();
+    setWorkspace(undefined);
+    setRestoreStats(undefined);
+    setRestoreRequest(data.openedRoot ? {root:data.openedRoot,excludes:data.excludes} : undefined);
+    setRestoredRoot(data.openedRoot); setDraftId(data.id); setRevision(data.revision); setDraftWorkflow(data.workflow); setWorkspacePath(data.workspacePath); setExcludes(data.excludes); setSelection(data.selection); setRepairMode(data.repairMode); select(data.selectedId); setBuffers(data.buffers); setSavedFingerprint(data.savedFingerprint); setRunBinding(data.runBinding); setSnapshotView(false);
+  }
+  useEffect(()=>{
+    const frame=requestAnimationFrame(()=>{
+      try { const restored=readDraft(localStorage.getItem(draftKey)); if(restored){restoreDraft(restored.data);setUndoDraft(restored.undo);setNotice("已恢复本地草稿；运行不会自动重放。");}else setDraftId(crypto.randomUUID()); }
+      catch { setStorageFailed(true); }
+      setHydrated(true);
+    }); return ()=>cancelAnimationFrame(frame);
+  },[]);
+  useEffect(()=>{
+    if(!hydrated)return;
+    const save=()=>{try{const saved=persistDraft(localStorage,draftRef.current,undoRef.current);setLocalSaved(saved);setStorageFailed(!saved);}catch{setStorageFailed(true);setLocalSaved(false);}};
+    const timer=setTimeout(save,350);
+    const leave=(event:BeforeUnloadEvent)=>{try{localStorage.setItem(draftKey,JSON.stringify({version:1,data:draftRef.current,undo:undoRef.current}));}catch{event.preventDefault();event.returnValue="";}};
+    const hide=()=>{try{localStorage.setItem(draftKey,JSON.stringify({version:1,data:draftRef.current,undo:undoRef.current}));}catch{/* beforeunload handles the visible warning */}};
+    window.addEventListener("beforeunload",leave);window.addEventListener("pagehide",hide);
+    return()=>{clearTimeout(timer);window.removeEventListener("beforeunload",leave);window.removeEventListener("pagehide",hide);};
+  },[hydrated,draftWorkflow,draftId,revision,workspacePath,workspace?.root,restoredRoot,excludes,selection,repairMode,selectedId,buffers,savedFingerprint,runBinding,undoDraft]);
+  useEffect(() => {
+    if (!csrf || !hydrated || !restoreRequest) return;
+    const abort = new AbortController();
+    restoreAbort.current = abort;
+    const frame = requestAnimationFrame(() => {
+      setRestoring(true);
+      void openWorkspace(restoreRequest.root, restoreRequest.excludes?.split("\n").filter(Boolean), csrf, abort.signal, setRestoreStats)
+        .then(next => {
+          if (abort.signal.aborted) return;
+          setWorkspace(next);
+          setSelection(old => old.filter(item => next.files.some(p => p === item.path || (item.directory && p.startsWith(item.path + "/")))));
+        })
+        .catch(error => {
+          if (!abort.signal.aborted) {
+            setNoticeError(true);
+            setNotice("草稿已恢复，但项目需重新打开：" + error.message);
+          }
+        })
+        .finally(() => { if (!abort.signal.aborted) setRestoring(false); });
+    });
+    return () => { cancelAnimationFrame(frame); abort.abort(); };
+  }, [csrf, hydrated, restoreRequest]);
   const validation = useMemo(() => validateWorkflow(workflow), [workflow]);
   const selected = workflow.nodes.find((n) => n.id === selectedId);
   const running = run && activeStatuses.includes(run.status);
@@ -300,6 +378,7 @@ function Studio() {
       )
     )
       return;
+    if(snapshotView)return;
     setWorkflow((w) => {
       const removed = new Set(
         changes.filter((c) => c.type === "remove").map((c) => c.id),
@@ -323,6 +402,7 @@ function Studio() {
     });
   }
   function edgeChanges(changes: EdgeChange[]) {
+    if(snapshotView)return;
     const removed = new Set(
       changes.filter((c) => c.type === "remove").map((c) => c.id),
     );
@@ -333,6 +413,7 @@ function Studio() {
       }));
   }
   function connect(connection: Connection) {
+    if(snapshotView)return;
     if (!connection.sourceHandle || connection.targetHandle !== "in") return;
     setWorkflow((w) => ({
       ...w,
@@ -358,11 +439,11 @@ function Studio() {
         measured: measurements[node.id],
         data: {
           node,
-          status: run?.records.findLast((r) => r.nodeId === node.id)?.status,
+          status: snapshotView || matchesRun ? run?.records.findLast((r) => r.nodeId === node.id)?.status : undefined,
           invalid: validation.errors.some((e) => e.nodeId === node.id),
         },
       })),
-    [workflow.nodes, selectedId, run, validation.errors, measurements],
+    [workflow.nodes, selectedId, run, validation.errors, measurements,snapshotView,matchesRun],
   );
   const edges = workflow.edges.map((edge) => ({
     id: edge.id,
@@ -396,16 +477,11 @@ function Studio() {
   }
   async function startRun() {
     await action(async () => {
-      setRun(
-        await api<RunState>("/api/runs", "POST", {
-          mode: "real",
-          workflow,
-          workspaceId: workspace!.id,
-          selection,
-          repairMode,
-          requestId: crypto.randomUUID(),
-        }),
-      );
+      if(pendingJson)throw new Error("请先应用或重置未应用的节点 JSON");
+      const started = await api<RunState>("/api/runs", "POST", {
+        mode:"real",workflow:draftWorkflow,workspaceId:workspace!.id,selection,repairMode,requestId:crypto.randomUUID(),
+      });
+      setRun(started);setRunBinding({runId:started.id,draftId,revision,executionKey:currentExecutionKey});setSnapshotView(false);
       setView("events");
       setExpanded(true);
       setNotice("运行已启动。");
@@ -423,19 +499,21 @@ function Studio() {
       leftRef.current?.querySelector<HTMLInputElement>("input")?.focus(),
     );
   }
-  function replaceWorkflow(next: Workflow, selected = next.nodes[0].id) {
-    setWorkflow(next);
-    select(selected);
-    selectEdge(undefined);
-    setMeasurements({});
-    // A fresh store also discards React Flow's internal dimensions for reused IDs.
-    setCanvasRevision((revision) => revision + 1);
+  function commitReplacement(next:Workflow,selected:string,saved=false) {
+    setUndoDraft(structuredClone(draftRef.current));
+    setDraftWorkflow(next);setDraftId(crypto.randomUUID());setRevision(0);setBuffers({});setSnapshotView(false);setSavedFingerprint(saved?workflowFingerprint(next):"");setLocalSaved(false);
+    select(selected);selectEdge(undefined);setMeasurements({});setCanvasRevision(r=>r+1);setReplacement(undefined);
+  }
+  function replaceWorkflow(next:Workflow,selected=next.nodes[0].id,saved=false) {
+    if(dirty){setReplacement({workflow:next,selected,saved});return;}
+    commitReplacement(next,selected,saved);
+  }
+  async function saveWorkflow() {
+    if(pendingJson)throw new Error("请先应用或重置未应用的节点 JSON");
+    const saving=draftWorkflow;await api("/api/workflows","PUT",saving);setSavedFingerprint(workflowFingerprint(saving));setNotice("工作流已保存到服务器。");
   }
   function loadTemplate() {
-    replaceWorkflow(createTemplate(), "review");
-    setSettingsOpen(false);
-    setPage("editor");
-    setRightOpen(true);
+    replaceWorkflow(createTemplate(),"review");setSettingsOpen(false);setPage("editor");setRightOpen(true);
   }
   function resource(tab: "workspace" | "nodes") {
     setLeftOpen(page === "editor" && leftTab === tab ? !leftOpen : true);
@@ -447,7 +525,7 @@ function Studio() {
       className={cx("studio")}
       style={{ "--result-height": `${layout.resultHeight}px` } as CSSProperties}
     >
-      <header className={cx("topbar")} inert={mobileViewport}>
+      <header className={cx("topbar")} inert={mobileViewport || Boolean(replacement)}>
         <button
           className={cx("brand-mark")}
           aria-label="返回欢迎工作台"
@@ -520,7 +598,7 @@ function Studio() {
       </header>
       <div
         className={cx("desktop-shell")}
-        inert={mobileViewport}
+        inert={mobileViewport || Boolean(replacement)}
         style={{
           gridTemplateColumns: `48px ${showLeft ? layout.leftWidth : 0}px ${showLeft ? 5 : 0}px minmax(0, 1fr) ${showRight ? 5 : 0}px ${showRight ? layout.rightWidth : 0}px`,
         }}
@@ -597,10 +675,14 @@ function Studio() {
             setSelection={setSelection}
             excludes={excludes}
             setExcludes={setExcludes}
-            workflow={workflow}
+            workflow={draftWorkflow}
             setWorkflow={setWorkflow}
+            restoring={restoring}
+            restoreStats={restoreStats}
+            onCancelRestore={()=>{restoreAbort.current?.abort();setRestoring(false);setNotice("项目恢复扫描已取消；草稿与范围保留，可重新打开项目。");}}
+            readOnly={snapshotView}
             select={select}
-            onOpened={() => setPage("editor")}
+            onOpened={(next) => { restoreAbort.current?.abort(); setRestoring(false); setRestoreRequest(undefined); setRestoredRoot(next.root); setRestoreStats(undefined); setPage("editor"); }}
             onAdded={() => {
               setSettingsOpen(false);
               setRightOpen(true);
@@ -645,6 +727,7 @@ function Studio() {
                   <input
                     className={cx("workflow-name")}
                     aria-label="工作流名称"
+                    readOnly={snapshotView}
                     value={workflow.name}
                     onChange={(e) =>
                       setWorkflow({ ...workflow, name: e.target.value })
@@ -652,13 +735,15 @@ function Studio() {
                   />
                 </div>
                 <div className={cx("toolbar-buttons canvas-actions")}>
+                  <span className={cx("draft-state")} role="status">{storageFailed?"本地存储不可用，离开前请导出或保存":pendingJson?"有未应用 JSON · "+(localSaved?"本地草稿已保存":"正在保存本地草稿"):!dirty?"已保存到服务器":localSaved?"有未保存修改 · 本地草稿已保存":"有未保存修改"}</span>
+                  {run && <button aria-pressed={snapshotView} onClick={()=>{setSnapshotView(v=>!v);setCanvasRevision(r=>r+1);}}>{snapshotView?"返回当前草稿":"查看运行快照"}</button>}
+                  {undoDraft && <button onClick={()=>{restoreDraft(undoDraft);setUndoDraft(undefined);setCanvasRevision(r=>r+1);}}>撤销替换</button>}
                   <button onClick={loadTemplate}>加载默认模板</button>
                   <button
-                    disabled={!csrf || busy || !validation.valid}
+                    disabled={!csrf || busy || !validation.valid || pendingJson || snapshotView}
                     onClick={() =>
                       action(async () => {
-                        await api("/api/workflows", "PUT", workflow);
-                        setNotice("工作流已保存。");
+                        await saveWorkflow();
                       })
                     }
                   >
@@ -672,7 +757,7 @@ function Studio() {
                           "/api/workflows",
                         );
                         if (result.workflow) {
-                          replaceWorkflow(result.workflow);
+                          replaceWorkflow(result.workflow, result.workflow.nodes[0].id, true);
                           setNotice("已加载保存的工作流。");
                         } else setNotice("尚无已保存工作流。");
                       })
@@ -728,6 +813,10 @@ function Studio() {
                     nodes={nodes}
                     edges={edges}
                     nodeTypes={nodeTypes}
+                    nodesDraggable={!snapshotView}
+                    nodesConnectable={!snapshotView}
+                    edgesReconnectable={!snapshotView}
+                    deleteKeyCode={snapshotView ? null : ["Backspace","Delete"]}
                     onNodesChange={nodeChanges}
                     onEdgesChange={edgeChanges}
                     onConnect={connect}
@@ -770,7 +859,7 @@ function Studio() {
                   {workflow.nodes.length} 个节点 · {workflow.edges.length}{" "}
                   条控制连线
                 </span>
-                {selectedEdge && (
+                {selectedEdge && !snapshotView && (
                   <button
                     onClick={() => {
                       setWorkflow((w) => ({
@@ -843,6 +932,7 @@ function Studio() {
               setRun={setRun}
               running={Boolean(running)}
               selectedId={selectedId}
+              matchesDraft={matchesRun}
               view={view}
               setView={setView}
               expanded={expanded}
@@ -900,11 +990,13 @@ function Studio() {
               </button>
             </div>
           </div>
-          <div hidden={settingsOpen}>
+          <fieldset disabled={snapshotView} hidden={settingsOpen} style={{border:0,padding:0,margin:0,minWidth:0}}>
             {selected ? (
               <NodeConfig
                 key={selected.id}
                 node={selected}
+                buffer={snapshotView ? undefined : buffers[selected.id]}
+                setBuffer={value=>{setBuffers(old=>({...old,[selected.id]:value}));setLocalSaved(false);}}
                 update={updateNode}
                 remove={() => {
                   setWorkflow((w) => ({
@@ -921,7 +1013,7 @@ function Studio() {
             ) : (
               <p className={cx("help")}>点击画布上的节点查看配置。</p>
             )}
-          </div>
+          </fieldset>
           <div hidden={!settingsOpen}>
             <RunSettings
               repairMode={repairMode}
@@ -929,7 +1021,7 @@ function Studio() {
               csrf={csrf}
               busy={busy}
               running={Boolean(running)}
-              valid={validation.valid}
+              valid={validateWorkflow(draftWorkflow).valid && !pendingJson && !restoring}
               modelConfigured={modelConfigured}
               workspace={workspace}
               selectionCount={selection.length}
@@ -953,6 +1045,16 @@ function Studio() {
           {workspace ? `${selection.length} 项范围` : "尚未打开项目"}
         </span>
       </footer>
+      {replacement && <div className={cx("replacement-dialog")} role="dialog" aria-modal="true" aria-labelledby="replace-title" onKeyDown={event=>{
+        if(event.key==="Escape")setReplacement(undefined);
+        if(event.key==="Tab") {const buttons=Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>("button:not(:disabled)"));const first=buttons[0],last=buttons.at(-1);if(event.shiftKey&&document.activeElement===first){event.preventDefault();last?.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first?.focus();}}
+      }}>
+        <div><h2 id="replace-title">替换当前草稿？</h2><p>当前有未保存编辑。替换后可以撤销，本地草稿会保留。</p>
+          <div className={cx("toolbar-buttons")}><button autoFocus onClick={()=>setReplacement(undefined)}>取消</button>
+          <button disabled={busy||pendingJson||!validateWorkflow(draftWorkflow).valid} onClick={()=>action(async()=>{await saveBeforeReplace(saveWorkflow,()=>commitReplacement(replacement.workflow,replacement.selected,replacement.saved));})}>保存后替换</button>
+          <button onClick={()=>commitReplacement(replacement.workflow,replacement.selected,replacement.saved)}>直接替换</button></div>
+          {pendingJson && <p>存在未应用 JSON，请取消后先应用或重置，再保存到服务器。</p>}
+        </div></div>}
       <div
         className={cx("desktop-required")}
         role="status"

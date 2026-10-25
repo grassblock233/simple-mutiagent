@@ -8,6 +8,8 @@ Status: implemented
 
 ## Decision
 
+2026-10-25 的后续边界与变更见[大项目、草稿与上下文记录](2026-10-25-large-project-draft-context.md)；本文保留当时决定的背景与历史验收事实。
+
 默认模板与模板加载的后续变更见[单轮修复默认模板记录](../simplification/2026-10-21-single-repair-default.md)；本文保留原决定的背景及其他边界。
 
 应用在 Linux 上以单用户、单个 Node.js 进程运行 Next.js 本地 WebUI。React Flow 负责编辑与展示，后台严格校验独立版本化格式、串行调度单条活动路径。真实运行使用 DeepSeek 官方稳定端点、按节点独立历史和受校验的工具；修复进入固定文本副本，命令白名单在启动时生成且逐次审核，最终修改由独立文件事务服务应用和撤销。

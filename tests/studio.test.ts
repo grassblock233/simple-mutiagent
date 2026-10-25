@@ -105,3 +105,11 @@ test("directory grants cover descendants but never sibling path prefixes", () =>
     false,
   );
 });
+
+test("800px layout keeps 400px center, switches active side and restores wide preference",()=>{
+ const saved={...defaultLayout,leftWidth:300,rightWidth:300};
+ const right=fitLayout(saved,800,900);assert.equal(right.leftOpen,false);assert.equal(right.rightOpen,true);assert.ok(800-48-5-right.rightWidth>=400);
+ const left=fitLayout({...saved,activeSide:"left"},800,900);assert.equal(left.leftOpen,true);assert.equal(left.rightOpen,false);assert.ok(800-48-5-left.leftWidth>=400);
+ assert.equal(fitLayout(saved,1440,1000).leftOpen,true);assert.equal(fitLayout(saved,1440,1000).rightOpen,true);assert.equal(saved.leftOpen,true);
+ const tall=readLayout(JSON.stringify({...saved,resultHeight:616}));assert.equal(fitLayout(tall,1920,1440).resultHeight,616);
+});

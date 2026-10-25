@@ -1,12 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, realpath, lstat, chmod } from "node:fs/promises";
-import { SafeRoot, allowed, DEFAULT_EXCLUDES, differences, scan, version, within, relative, LIMITS, type Manifest, type Selection, type Change } from "./files";
+import { SafeRoot, allowed, DEFAULT_EXCLUDES, differences, scan, scanIndex, type ScanOptions, version, within, relative, LIMITS, type Manifest, type Selection, type Change } from "./files";
 
-export type Workspace = { id: string; root: string; excludes: string[]; files: string[] };
+export type Workspace = { id: string; root: string; excludes: string[]; files: string[]; stats?: import("../workspace-rules").ScanStats };
 export class WorkspaceRegistry {
   private entries = new Map<string, { owner: string; workspace: Workspace }>();
   constructor(readonly dataRoot: string) {}
-  async open(directory: string, owner: string, excludes = DEFAULT_EXCLUDES): Promise<Workspace> {
+  async open(directory: string, owner: string, excludes = DEFAULT_EXCLUDES, options: ScanOptions = {}): Promise<Workspace> {
     const root = await realpath(directory);
     await mkdir(this.dataRoot, { recursive: true, mode: 0o700 });
     const data = await realpath(this.dataRoot);
@@ -14,8 +14,9 @@ export class WorkspaceRegistry {
     if (!(await lstat(root)).isDirectory()) throw new Error("请选择目录");
     if (this.entries.size >= 100) throw new Error("工作区数量超过限制，请重启服务");
     const effectiveExcludes = [...new Set([...excludes, "node_modules/", ".workflow-home/", ".workflow-tmp/"])];
-    const manifest = await scan(root, effectiveExcludes);
-    const workspace = { id: randomUUID(), root, excludes: effectiveExcludes, files: Object.keys(manifest).sort() };
+    const index = await scanIndex(root, effectiveExcludes, options);
+    options.signal?.throwIfAborted();
+    const workspace = { id: randomUUID(), root, excludes: effectiveExcludes, ...index };
     this.entries.set(workspace.id, { owner, workspace });
     return structuredClone(workspace);
   }

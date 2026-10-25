@@ -189,3 +189,18 @@ test("历史兼容：旧演练记录不载入、不展示，启动不将其改�
     assert.deepEqual(JSON.parse(await readFile(filename, "utf8")), legacy);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test("interaction archives remain private and are deleted with their run", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "workflow-archive-"));
+  try {
+    const storage = new Storage(root);
+    const id = randomUUID();
+    await storage.archiveInteraction(id, { type: "initial", private: "source" });
+    await storage.archiveInteraction(id, { type: "compaction", private: "summary" });
+    assert.equal((await stat(path.join(root, "interactions"))).mode & 0o777, 0o700);
+    assert.equal((await stat(path.join(root, "interactions", id + ".jsonl"))).mode & 0o777, 0o600);
+    assert.equal((await readFile(path.join(root, "interactions", id + ".jsonl"), "utf8")).trim().split("\n").length, 2);
+    await storage.removeRun(id);
+    await assert.rejects(readFile(path.join(root, "interactions", id + ".jsonl")));
+  } finally { await rm(root, { recursive: true, force: true }); }
+});

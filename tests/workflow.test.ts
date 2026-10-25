@@ -571,3 +571,39 @@ test("迟到 HTTP 快照不能覆盖 SSE 的完成状态", async () => {
   assert.equal(newestSnapshot(finished, earlier).status, "completed");
   assert.equal(newestSnapshot(earlier, finished).status, "completed");
 });
+
+test("more than twenty command approvals remain individually authorized", async () => {
+  let approvals = 0;
+  const baseRunner = runner({ clean: true });
+  const engine = new WorkflowEngine(legacyWorkflow("review"), async context => {
+    if (context.node.kind === "review") for (let i = 0; i < 24; i++) {
+      assert.equal(await context.requestApproval({ ...command, purpose: "逐次审核 " + i }), "approved");
+      approvals++;
+    }
+    return baseRunner(context);
+  }, { onChange: state => {
+    const pending = state.approvals.find(a => a.status === "pending");
+    if (pending) queueMicrotask(() => engine.decideApproval(pending.id, pending.displayHash, "approved"));
+  }});
+  await engine.start();
+  assert.equal(engine.snapshot().conclusion, "passed");
+  assert.equal(approvals, 24);
+  assert.equal(new Set(engine.snapshot().approvals.map(a => a.id)).size, 24);
+});
+
+test("node deadline includes pending approval and rejects late results", { timeout: 1000 }, async () => {
+  let signal: AbortSignal | undefined;
+  const baseRunner = runner({ clean: true });
+  const engine = new WorkflowEngine(legacyWorkflow("review"), async context => {
+    if (context.node.kind !== "review") return baseRunner(context);
+    signal = context.signal;
+    await context.requestApproval(command);
+    return review(context.state);
+  }, { nodeTimeoutMs: 40 });
+  await engine.start();
+  const state = engine.snapshot();
+  assert.equal(state.status, "failed");
+  assert.match(state.exitReason!, /耗时预算（含审核等待）/);
+  assert.equal(signal?.aborted, true);
+  assert.equal(state.approvals[0].status, "expired");
+});

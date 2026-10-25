@@ -8,6 +8,8 @@ Status: implemented
 
 ## Decision
 
+2026-10-25 的后续边界与变更见[大项目、草稿与上下文记录](2026-10-25-large-project-draft-context.md)；本文保留当时决定的背景与历史验收事实。
+
 默认模板与模板加载的后续变更见[单轮修复默认模板记录](../simplification/2026-10-21-single-repair-default.md)；本文保留原决定的背景及其他边界。
 
 工作台的主题偏好、单一 SSE 订阅、审核边界与界面文案规则以本文为准；布局、响应式与移动端支持见[桌面工作台记录](2026-10-18-desktop-workbench.md)和[移动端视图记录](2026-10-18-mobile-viewport-gate.md)。

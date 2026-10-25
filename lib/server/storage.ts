@@ -61,6 +61,14 @@ export class Storage {
       await this.atomic(path.join(this.root, "diffs", `${state.id}.json`), { version: state.currentVersion, changes: state.changes ?? [] });
     }
   }
+  async archiveInteraction(id: string, entry: object) {
+    this.checkId(id);
+    const directory = path.join(this.root, "interactions");
+    await mkdir(directory, { recursive: true, mode: 0o700 });
+    await chmod(directory, 0o700);
+    const file = await open(path.join(directory, id + ".jsonl"), "a", 0o600);
+    try { await file.chmod(0o600); await file.writeFile(JSON.stringify(entry) + "\n"); } finally { await file.close(); }
+  }
   async saveBaseline(id: string, baseline: Manifest) {
     this.checkId(id);
     await this.atomic(path.join(this.root, "baselines", `${id}.json`), baseline);
@@ -90,8 +98,8 @@ export class Storage {
   async removeRun(id: string, transactionId?: string) {
     this.checkId(id);
     if (transactionId) this.checkId(transactionId);
-    for (const directory of ["runs", "events", "reports", "diffs", "baselines"]) {
-      const extension = directory === "events" ? "jsonl" : directory === "reports" ? "md" : "json";
+    for (const directory of ["runs", "events", "reports", "diffs", "baselines", "interactions"]) {
+      const extension = ["events", "interactions"].includes(directory) ? "jsonl" : directory === "reports" ? "md" : "json";
       await rm(path.join(/* turbopackIgnore: true */ this.root, directory, `${id}.${extension}`), { force: true });
     }
     await rm(path.join(this.root, "copies", id), { recursive: true, force: true });

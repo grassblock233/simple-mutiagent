@@ -440,6 +440,24 @@ test("HTTP：删除演练后拒绝旧请求格式，旧记录不出现在真实�
   assert.deepEqual(JSON.parse(await readFile(path.join(root, "runs", `${state.id}.json`), "utf8")), legacy);
 });
 
+test("workspace progress stream, unlimited selection schema and version-bound source endpoint",async()=>{
+ const project=await mkdtemp(path.join(tmpdir(),"workflow-http-stream-"));projects.push(project);await writeFile(path.join(project,"source.ts"),"line one\nline two\n");
+ const response=await fetch(base+"/api/workspaces",{method:"POST",headers:{cookie,"Content-Type":"application/json",Accept:"text/event-stream","x-workflow-csrf":token},body:JSON.stringify({path:project})});
+ assert.equal(response.status,200);assert.match(response.headers.get("content-type")!,/text\/event-stream/);const stream=await response.text();assert.match(stream,/event: progress/);assert.match(stream,/event: complete/);assert.doesNotMatch(stream,/event: error/);
+ const many=await mkdtemp(path.join(tmpdir(),"workflow-http-many-"));projects.push(many);
+ for(let i=0;i<1001;i++)await writeFile(path.join(many,"f"+i+".ts"),"safe");
+ const indexed=await api("/api/workspaces","POST",{path:many});assert.equal(indexed.data.files.length,1001);
+ const manyRun=await api("/api/runs","POST",{mode:"real",workflow:createTemplate(),workspaceId:indexed.data.id,selection:indexed.data.files.map((path:string)=>({path,directory:false})),repairMode:"confirm",requestId:randomUUID()});
+ assert.equal(manyRun.response.status,201,JSON.stringify(manyRun.data));assert.equal(manyRun.data.scope.length,1001);
+ await api("/api/runs/"+manyRun.data.id+"/cancel","POST",{});await waitState(manyRun.data.id,s=>!["pending","running","awaiting_approval","finalizing"].includes(s.status));
+ const {state}=await create("review");const finished=await waitState(state.id,s=>s.status==="completed");
+ const query=new URLSearchParams({path:"src/math.js",version:finished.baselineVersion,startLine:"1",endLine:"2"});
+ const source=await api("/api/runs/"+state.id+"/source?"+query);assert.equal(source.response.status,200);assert.match(source.data.content,/a\+b/);assert.equal(source.data.version,finished.baselineVersion);
+ query.set("version","0".repeat(64));assert.equal((await api("/api/runs/"+state.id+"/source?"+query)).response.status,409);
+ query.set("version",finished.baselineVersion);query.set("path","../.env.local");assert.equal((await api("/api/runs/"+state.id+"/source?"+query)).response.status,400);
+ assert.equal((await api("/api/runs/"+state.id+"/source?"+query,"GET",undefined,{cookie:""})).response.status,401);
+});
+
 test("HTTP：容量满时仍能删除未载入历史，未解决事务仍受保护", async () => {
   const storage = new Storage(root);
   const states: RunState[] = [];

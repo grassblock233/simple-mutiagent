@@ -11,12 +11,12 @@ import { WorkspaceRegistry, WorkingCopy } from "../runtime/workspace";
 import { availableCommands, redact } from "../runtime/commands";
 import { createDeepSeekClient } from "../runtime/deepseek";
 import { createAgentRunner, type RuntimeEvidence } from "../runtime/agent";
-import { version } from "../runtime/files";
+import { relative, LIMITS, version } from "../runtime/files";
 import { Transactions } from "../runtime/transaction";
 
 export const realRequestSchema = z.object({
   mode: z.literal("real"), workflow: workflowSchema, workspaceId: z.string().uuid(),
-  selection: z.array(z.object({ path: z.string().min(1).max(500), directory: z.boolean() }).strict()).min(1).max(1000),
+  selection: z.array(z.object({ path: z.string().min(1).max(500), directory: z.boolean() }).strict()).min(1),
   repairMode: z.enum(["confirm", "automatic"]), requestId: z.string().uuid(),
 }).strict();
 type Entry = {
@@ -82,7 +82,7 @@ class RunManager {
       await this.storage.saveBaseline(id, copy.baseline);
       const commands = await availableCommands(copy);
       const evidence: RuntimeEvidence = { reads: [], commands: [], usage: [] };
-      const runner = createAgentRunner(copy, commands, createDeepSeekClient({ apiKey: process.env.DEEPSEEK_API_KEY, onUncertain: usage => evidence.usage.push(usage) }), evidence);
+      const runner = createAgentRunner(copy, commands, createDeepSeekClient({ apiKey: process.env.DEEPSEEK_API_KEY, onUncertain: usage => evidence.usage.push(usage) }), evidence, { archive: entry => this.storage.archiveInteraction(id, JSON.parse(redact(JSON.stringify(entry)))) });
       const real = { scope: copy.scope(), baselineVersion: version(copy.baseline), workspace: { id: workspace.id, root: workspace.root, selection: copy.selection, excludes: workspace.excludes }, allowPath: (p: string) => copy.canWrite(p), allowCommand: (c: CommandSpec) => c.cwd === copy.root && commands.some(a => a.executable === c.executable && JSON.stringify(a.args) === JSON.stringify(c.args)) };
       entry.engine = new WorkflowEngine(input.workflow, runner, {
         id, real, repairMode: input.repairMode,
@@ -94,7 +94,7 @@ class RunManager {
         if (!entry.copy) return;
         try {
           await evidence.pending;
-          entry.engine.captureEvidence({ reads: evidence.reads, commands: evidence.commands, usage: evidence.usage });
+          entry.engine.captureEvidence({ reads: evidence.reads, commands: evidence.commands, usage: evidence.usage, compactions: evidence.compactions });
           const changes = await entry.copy.changes();
           entry.engine.updateApplication({ applicationStatus: "not_applied", changes });
           const state = entry.engine.snapshot();
@@ -119,6 +119,39 @@ class RunManager {
       this.starting.delete(owner);
       if (workspaceRoot) this.workspaceStarting.delete(workspaceRoot);
     }
+  }
+  async source(id: string, owner: string, query: { path: string; version: string; startLine: number; endLine: number }) {
+    const entry = this.get(id, owner);
+    const state = entry.engine.snapshot();
+    relative(query.path);
+    if (!Number.isInteger(query.startLine) || !Number.isInteger(query.endLine) || query.startLine < 1 || query.endLine < query.startLine) throw new HttpError(400, "行范围无效");
+    let baseline: Record<string, string>;
+    try { baseline = await this.storage.loadBaseline(id); }
+    catch { throw new HttpError(409, "该运行的源码基线不可用；不会改用当前磁盘文件"); }
+    const candidates: Record<string, string>[] = [baseline];
+    const reconstructed = { ...baseline };
+    for (const change of state.changes ?? []) {
+      if (change.after === null) delete reconstructed[change.path]; else reconstructed[change.path] = change.after;
+    }
+    candidates.push(reconstructed);
+    // Replay recorded repair outputs for intermediate reviewed versions.
+    const intermediate = { ...baseline };
+    for (const record of state.records) if (record.output?.type === "repair") {
+      for (const change of record.output.changes) {
+        if (change.after === null) delete intermediate[change.path]; else intermediate[change.path] = change.after;
+      }
+      if (version(intermediate) === query.version) candidates.push({ ...intermediate });
+    }
+    let manifest = candidates.find(files => version(files) === query.version);
+    if (!manifest && entry.copy) {
+      try { const current = await entry.copy.manifest(); if (version(current) === query.version) manifest = current; } catch { /* Removed copy is normal after completion. */ }
+    }
+    if (!manifest) throw new HttpError(409, "该内容版本不可用；不会改用当前磁盘文件");
+    if (!Object.hasOwn(manifest, query.path)) throw new HttpError(404, "该版本中没有此文件");
+    const lines = manifest[query.path].split("\n");
+    const content = lines.slice(query.startLine - 1, query.endLine).join("\n");
+    if (Buffer.byteLength(content) > LIMITS.readBytes) throw new HttpError(400, "读取超过 256 KiB，请缩小行范围");
+    return { ...query, endLine: Math.min(query.endLine, lines.length), totalLines: lines.length, content };
   }
   async apply(id: string, owner: string, expectedVersion: string, automatic = false) {
     const entry = this.get(id, owner);
@@ -219,5 +252,7 @@ class RunManager {
   }
   snapshot(id: string, owner: string): RunState { return JSON.parse(redact(JSON.stringify(this.get(id, owner).engine.snapshot()))); }
 }
-const globalManager = globalThis as typeof globalThis & { simpleWorkflowManager?: RunManager };
-export const manager = (globalManager.simpleWorkflowManager ??= new RunManager());
+// Bump the development singleton when runtime contracts change, so HMR cannot
+// keep an old WorkspaceRegistry implementation with superseded scan limits.
+const globalManager = globalThis as typeof globalThis & { simpleWorkflowManagerV2?: RunManager };
+export const manager = (globalManager.simpleWorkflowManagerV2 ??= new RunManager());

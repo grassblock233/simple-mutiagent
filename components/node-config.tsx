@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { nodeJson, type JsonBuffer } from "@/lib/studio/draft";
 import { cx } from "./studio-styles";
 import { labels, nodeSchema, type WorkflowNode } from "@/lib/workflow/schema";
 
@@ -7,12 +8,19 @@ export function NodeConfig({
   node,
   update,
   remove,
+  buffer,
+  setBuffer,
 }: {
   node: WorkflowNode;
   update: (node: WorkflowNode) => void;
   remove: () => void;
+  buffer?: JsonBuffer;
+  setBuffer: (value: JsonBuffer) => void;
 }) {
-  const [advanced, setAdvanced] = useState("");
+  const source = nodeJson(node);
+  const advanced = buffer && buffer.text !== buffer.base ? buffer.text : source;
+  const pending = advanced !== source;
+  const conflict = Boolean(pending && buffer && buffer.base !== source);
   const [error, setError] = useState("");
   return (
     <>
@@ -88,15 +96,16 @@ export function NodeConfig({
             输出预算
             <input
               type="number"
-              min={256}
-              max={16384}
-              value={node.config.maxOutputTokens}
+              min={1}
+              max={393216}
+              placeholder="使用 DeepSeek 默认值"
+              value={node.config.maxOutputTokens ?? ""}
               onChange={(e) =>
                 update({
                   ...node,
                   config: {
                     ...node.config,
-                    maxOutputTokens: Number(e.target.value),
+                    maxOutputTokens: e.target.value === "" ? undefined : Number(e.target.value),
                   },
                 })
               }
@@ -200,23 +209,15 @@ export function NodeConfig({
       ))}
       <details
         className={cx("advanced-config")}
-        onToggle={(e) => {
-          if (e.currentTarget.open)
-            setAdvanced(
-              JSON.stringify(
-                { config: node.config, inputs: node.inputs },
-                null,
-                2,
-              ),
-            );
-        }}
+
       >
-        <summary>编辑配置与输入 JSON</summary>
+        <summary>编辑配置与输入 JSON{pending ? " · 未应用" : ""}</summary>
+        {conflict && <p role="alert">普通表单已变化。选择“应用配置”以 JSON 为准，或“重新载入表单值”放弃此 JSON 草稿。</p>}
         <textarea
           aria-label="节点配置 JSON"
           rows={12}
           value={advanced}
-          onChange={(e) => setAdvanced(e.target.value)}
+          onChange={(e) => setBuffer({text:e.target.value,base:buffer && buffer.text !== buffer.base ? buffer.base : source})}
         />
         <button
           onClick={() => {
@@ -234,6 +235,7 @@ export function NodeConfig({
                     .join("；"),
                 );
               update(parsed.data);
+              setBuffer({text:nodeJson(parsed.data),base:nodeJson(parsed.data)});
               setError("");
             } catch (e) {
               setError(e instanceof Error ? e.message : "JSON 无效");
@@ -242,6 +244,7 @@ export function NodeConfig({
         >
           应用配置
         </button>
+        <button onClick={()=>{setBuffer({text:source,base:source});setError("");}}>重新载入表单值</button>
         {error && (
           <p className={cx("config-error")} role="alert">
             {error}

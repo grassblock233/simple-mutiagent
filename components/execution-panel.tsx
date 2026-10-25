@@ -1,13 +1,14 @@
 "use client";
 import type { Dispatch, SetStateAction } from "react";
 import { cx } from "./studio-styles";
-import { Icon, EmptyState, handleTabKeys, nodeStatusLabels } from "./studio-ui";
+import { Icon, EmptyState, handleTabKeys } from "./studio-ui";
 import {
   statuses,
   applicationStatuses,
   conclusions,
 } from "@/lib/workflow/report";
 import type { RunState } from "@/lib/workflow/schema";
+import { RunResults } from "./run-results";
 import { newestSnapshot } from "@/lib/workflow/snapshot";
 import type { StudioActions } from "./studio-types";
 type Setter<T> = Dispatch<SetStateAction<T>>;
@@ -17,6 +18,7 @@ type Props = StudioActions & {
   setRun: Setter<RunState | undefined>;
   running: boolean;
   selectedId: string;
+  matchesDraft: boolean;
   view: "events" | "results" | "diff";
   setView: Setter<"events" | "results" | "diff">;
   expanded: boolean;
@@ -28,6 +30,7 @@ export function ExecutionPanel({
   setRun,
   running,
   selectedId,
+  matchesDraft,
   view,
   setView,
   expanded,
@@ -36,8 +39,8 @@ export function ExecutionPanel({
   busy,
   action,
   api,
+  setNotice,
 }: Props) {
-  const nodeRecords = run?.records.filter((r) => r.nodeId === selectedId) ?? [];
   const changes =
     run?.records.flatMap((r) =>
       r.output?.type === "repair"
@@ -78,7 +81,7 @@ export function ExecutionPanel({
               {tab === "events"
                 ? "执行记录"
                 : tab === "results"
-                  ? "节点输入 / 输出"
+                  ? "审查结果"
                   : "最终差异 / 各轮"}
             </button>
           ))}
@@ -115,11 +118,12 @@ export function ExecutionPanel({
                         requestId: crypto.randomUUID(),
                       }),
                     );
+                    setNotice("已按该次配置启动新运行。");
                     setExpanded(true);
                   })
                 }
               >
-                重新运行
+                按该次配置重跑
               </button>
               {run.changes?.length ? (
                 <button
@@ -183,6 +187,11 @@ export function ExecutionPanel({
         </div>
       </div>
       <div hidden={!expanded} className={cx("execution-content")}>
+        {run && <div className={cx("run-identity")}>
+          <strong>{run.workflow.name}</strong> · {new Date(run.createdAt).toLocaleString("zh-CN")}<br/>
+          {run.workspace?.root} · {run.scope.length} 个文件 · {matchesDraft?"对应当前草稿":"与当前草稿不同"}
+          <details><summary>查看本次范围与用量</summary>{run.workspace?.selection.map(s=><div key={s.path}>{s.path}{s.directory?"/":""}</div>)}<p>模型请求 {run.usage?.length ?? 0} 次 · 摘要请求 {run.usage?.filter(u=>u.purpose==="summary").length ?? 0} 次 · 上下文压缩 {run.compactions?.length ?? 0} 次</p></details>
+        </div>}
         {run?.conclusion && (
           <div className={cx(`conclusion conclusion-${run.conclusion}`)}>
             <strong>
@@ -232,32 +241,7 @@ export function ExecutionPanel({
               ))}
             </div>
           ) : view === "results" ? (
-            <div className={cx("node-records")}>
-              {nodeRecords.length ? (
-                nodeRecords.map((record) => (
-                  <details key={record.id} open>
-                    <summary>
-                      {record.nodeId} · 第 {record.round} 轮 ·{" "}
-                      {nodeStatusLabels[record.status]} · 输入版本{" "}
-                      {record.inputVersion}
-                    </summary>
-                    <pre>
-                      {JSON.stringify(
-                        {
-                          input: record.input,
-                          output: record.output,
-                          error: record.error,
-                        },
-                        null,
-                        2,
-                      )}
-                    </pre>
-                  </details>
-                ))
-              ) : (
-                <p className={cx("help")}>选中节点尚无执行记录。</p>
-              )}
-            </div>
+            <RunResults key={run.id} run={run} selectedId={selectedId} api={api} />
           ) : (
             <div className={cx("diff-list")}>
               <details open>

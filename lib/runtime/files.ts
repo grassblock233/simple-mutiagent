@@ -3,8 +3,9 @@ import { open, lstat, realpath, readdir, mkdir, rename, unlink } from "node:fs/p
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 
-export const DEFAULT_EXCLUDES = [".git/", "node_modules/", ".next/", "dist/", "build/", "coverage/", ".workflow-home/", ".workflow-tmp/", ".env*", "*.pem", "*.key", "*.p12", "*.crt", "*.png", "*.jpg", "*.pdf", "*.zip", "*.lock"];
-export const LIMITS = { files: 1000, bytes: 16 * 1024 * 1024, fileBytes: 1024 * 1024, readBytes: 256 * 1024 };
+import { type ScanStats } from "../workspace-rules";
+export { DEFAULT_EXCLUDES } from "../workspace-rules";
+export const LIMITS = { fileBytes: 1024 * 1024, readBytes: 256 * 1024 };
 export type Change = { path: string; before: string | null; after: string | null };
 export type Selection = { path: string; directory: boolean };
 export type Manifest = Record<string, string>;
@@ -83,9 +84,16 @@ export class SafeRoot {
       try {
         const st = await handle.stat();
         if (!st.isFile() || st.nlink !== 1 || st.size > LIMITS.fileBytes) throw new Error("拒绝特殊、硬链接或超限文件");
-        const buffer = Buffer.alloc(LIMITS.fileBytes + 1);
-        const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+        const buffer = Buffer.alloc(Math.min(st.size + 1, LIMITS.fileBytes + 1));
+        let bytesRead = 0;
+        while (bytesRead < buffer.length) {
+          const chunk = await handle.read(buffer, bytesRead, buffer.length - bytesRead, bytesRead);
+          if (!chunk.bytesRead) break;
+          bytesRead += chunk.bytesRead;
+        }
         if (bytesRead > LIMITS.fileBytes) throw new Error("文件读取超限");
+        const after = await handle.stat();
+        if (bytesRead !== st.size || after.size !== st.size || after.mtimeMs !== st.mtimeMs) throw new Error("读取期间文件发生变化，请重试");
         return text(buffer.subarray(0, bytesRead));
       } finally { await handle.close(); }
     } finally { await parent.directory.close(); }
@@ -124,33 +132,59 @@ export class SafeRoot {
     }
   }
 }
-export async function scan(root: string, rules: string[], strict = false): Promise<Manifest> {
+export type ScanOptions = { signal?: AbortSignal; onProgress?: (stats: ScanStats) => void };
+async function walkFiles(root: string, rules: string[], strict: boolean, collect: (file: string, content: string) => void, options: ScanOptions) {
   const safe = await new SafeRoot(root).initialize();
-  const files: Manifest = Object.create(null);
-  let bytes = 0;
+  const stats: ScanStats = { scanned: 0, files: 0, bytes: 0, skipped: {}, directories: [] };
+  const directories = new Map<string, { path: string; files: number; bytes: number }>();
+  let last = 0;
+  const progress = (force = false) => {
+    if (force || Date.now() - last >= 100) {
+      last = Date.now();
+      stats.directories = [...directories.values()].sort((a,b) => b.bytes-a.bytes).slice(0, 8);
+      options.onProgress?.(structuredClone(stats));
+    }
+  };
+  const skip = (reason: string) => { stats.skipped[reason] = (stats.skipped[reason] ?? 0) + 1; };
   async function walk(directory: string) {
+    options.signal?.throwIfAborted();
     for (const item of await readdir(directory, { withFileTypes: true })) {
+      options.signal?.throwIfAborted(); stats.scanned++;
       const p = path.relative(root, path.join(directory, item.name)).split(path.sep).join("/");
-      if (excluded(p, rules)) continue;
+      if (excluded(p, rules)) { skip("排除规则"); progress(); continue; }
       if (item.isSymbolicLink() || (!item.isDirectory() && !item.isFile())) {
-        if (strict) throw new Error(`副本包含符号链接或特殊文件：${p}`);
-        continue;
+        if (strict) throw new Error("副本包含符号链接或特殊文件：" + p);
+        skip("链接或特殊文件"); progress(); continue;
       }
       if (item.isDirectory()) {
-        // Check each parent again before recursing; safe.read enforces dirfd containment.
         const physical = await realpath(path.join(root, p));
         if (!within(root, physical) || (await lstat(path.join(root, p))).isSymbolicLink()) throw new Error("扫描路径已变化");
         await walk(path.join(root, p));
       } else {
         try {
-          const content = await safe.read(p);
+          const content = await safe.read(p); options.signal?.throwIfAborted();
           if (content === null) throw new Error("扫描期间文件消失");
-          files[p] = content; bytes += Buffer.byteLength(content);
-        } catch (e) { if (strict) throw e; else continue; }
-        if (Object.keys(files).length > LIMITS.files || bytes > LIMITS.bytes) throw new Error("工作区副本超过 1000 文件或 16 MiB 上限，请缩小工作区/增加排除规则");
+          collect(p, content); const size = Buffer.byteLength(content);
+          stats.files++; stats.bytes += size;
+          const parts = p.split("/");
+          const key = parts.length > 1 ? parts[0] + "/" : "（根目录文件）";
+          const d = directories.get(key) ?? { path: key, files: 0, bytes: 0 };
+          d.files++; d.bytes += size; directories.set(key, d);
+        } catch (e) {
+          options.signal?.throwIfAborted(); if (strict) throw e;
+          skip(e instanceof Error && /超限/.test(e.message) ? "超过 1 MiB 或非普通文件" : "二进制、非 UTF-8 或不可读");
+        }
+        progress();
       }
     }
   }
-  await walk(root);
-  return files;
+  progress(true); await walk(root); options.signal?.throwIfAborted(); progress(true); return stats;
+}
+export async function scan(root: string, rules: string[], strict = false, options: ScanOptions = {}): Promise<Manifest> {
+  const files: Manifest = Object.create(null);
+  await walkFiles(root, rules, strict, (p,c) => { files[p] = c; }, options); return files;
+}
+export async function scanIndex(root: string, rules: string[], options: ScanOptions = {}) {
+  const files: string[] = [];
+  const stats = await walkFiles(root, rules, false, p => files.push(p), options); return { files: files.sort(), stats };
 }

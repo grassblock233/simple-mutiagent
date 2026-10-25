@@ -4,6 +4,7 @@ export type Workspace = {
   root: string;
   files: string[];
   excludes: string[];
+  stats?: import("@/lib/workspace-rules").ScanStats;
 };
 export type ScopeSelection = { path: string; directory: boolean };
 export type HistoryEntry = {

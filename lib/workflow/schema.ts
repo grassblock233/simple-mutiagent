@@ -34,7 +34,7 @@ const agentConfig = z
     prompt: text,
     thinking: z.boolean(),
     reasoningEffort: z.enum(["low", "high", "max"]),
-    maxOutputTokens: z.number().int().min(256).max(16384),
+    maxOutputTokens: z.number().int().min(1).max(393216).optional(),
     requireValidation: z.boolean(),
   })
   .strict();
@@ -321,7 +321,8 @@ export type RunState = {
   reads?: { path: string; version: string; startLine: number; endLine: number; nodeId: string }[];
   commands?: import("../runtime/commands").CommandRecord[];
   reviewConclusion?: Conclusion;
-  usage?: { nodeId: string; model: string; time: string; durationMs: number; promptTokens: number | null; completionTokens: number | null; cacheHitTokens: number | null; cacheMissTokens: number | null; uncertain?: boolean }[];
+  usage?: { nodeId: string; model: string; time: string; durationMs: number; promptTokens: number | null; completionTokens: number | null; cacheHitTokens: number | null; cacheMissTokens: number | null; uncertain?: boolean; purpose?: "agent" | "summary" }[];
+  compactions?: { nodeId: string; time: string; beforeTokens: number; afterTokens: number; groups: number }[];
   transaction?: import("../runtime/transaction").Transaction;
   applicationError?: string;
   createdAt: string;

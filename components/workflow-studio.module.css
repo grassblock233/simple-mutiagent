@@ -788,7 +788,7 @@
   height: var(--result-height);
 }
 .execution.collapsed {
-  height: 36px;
+  height: auto;
 }
 .execution-toolbar {
   display: flex;
@@ -1244,3 +1244,28 @@
 .desktop-required p {
   color: var(--muted);
 }
+
+.result-tabs { flex-wrap: wrap; min-width: 0; }
+.execution-toolbar { height: auto; }
+.virtual-tree { padding: 0; }
+.virtual-tree .tree-row label { min-width: 0; flex: 1; }
+.virtual-tree .tree-row > button:last-child { flex: 0 0 24px; }
+.selected-scopes { list-style: none; padding: 0; max-height: 180px; overflow: auto; }
+.selected-scopes li { display: flex; align-items: center; gap: 6px; margin: 5px 0; }
+.selected-scopes li span { overflow-wrap: anywhere; flex: 1; min-width: 0; }
+.scan-status { margin: 12px 0; overflow-wrap: anywhere; font-size: 11px; }
+.draft-state { font-size: 11px; color: var(--muted); }
+.run-identity { padding: 8px 12px; border-bottom: 1px solid var(--line); font-size: 11px; overflow-wrap: anywhere; }
+.issue-card { padding: 12px; border: 1px solid var(--line); border-radius: 5px; margin: 10px 0; }
+.issue-card p { white-space: pre-wrap; overflow-wrap: anywhere; margin: 6px 0; }
+.issue-card header { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.issue-card[data-severity="blocking"] { border-left: 3px solid var(--danger); }
+.result-filters { display: flex; gap: 8px; flex-wrap: wrap; }
+.result-filters select { width: auto; max-width: 100%; }
+.source-view { max-height: 300px; overflow: auto; font: 12px/1.6 monospace; }
+.source-line { display: flex; white-space: pre; }
+.source-line mark { background: var(--accent-soft); color: inherit; display: block; min-width: 100%; }
+.source-line code { display: inline-block; min-width: 45px; padding: 0 8px; color: var(--muted); }
+.replacement-dialog { position: fixed; inset: 0; background: #0007; display: grid; place-items: center; z-index: 100; }
+.replacement-dialog > div { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 24px; width: min(480px, 90vw); }
+@media (max-width: 1020px) { .canvas-toolbar { flex-wrap: wrap; } .canvas-actions { flex-wrap: wrap; } }

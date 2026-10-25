@@ -384,3 +384,64 @@ for (const [name, steps, expected, extraTest] of [
     } finally { await f.cleanup(); }
   });
 }
+
+test("large project indexing has no count or total-byte cap; cancellation does not register workspace", async()=>{
+ const root=await mkdtemp(path.join(tmpdir(),"workflow-large-")),project=path.join(root,"project");await mkdir(project);
+ try {
+   for(let i=0;i<1025;i++)await writeFile(path.join(project,"file"+i+".ts"),"a".repeat(17000));
+   const registry=new WorkspaceRegistry(path.join(root,"data"));const progress:number[]=[];
+   const workspace=await registry.open(project,"owner",[],{onProgress:s=>progress.push(s.files)});
+   assert.equal(workspace.files.length,1025);assert.ok(workspace.stats!.bytes>16*1024*1024);assert.equal(workspace.stats!.files,1025);assert.equal(progress.at(-1),1025);
+   const abort=new AbortController();await assert.rejects(registry.open(project,"owner",[],{signal:abort.signal,onProgress:s=>{if(s.files>0)abort.abort();}}));
+   const copy=await WorkingCopy.create(workspace,workspace.files.map(path=>({path,directory:false})),path.join(root,"copy"));assert.equal(copy.scope().length,1025);
+ }finally{await rm(root,{recursive:true,force:true});}
+});
+test("agent exceeds former tool, turn and cumulative read limits while preserving evidence",async()=>{
+ const content="a".repeat(24000);const f=await fixture({"src/a.ts":content});
+ try {
+   const evidence:RuntimeEvidence={reads:[],commands:[],usage:[]};let requests=0;let reads=0;
+   const client:CompletionClient=async(messages,_,__,___,nodeId)=>{
+     requests++;const first=JSON.parse(messages[1].content!);const done=reads>=24;
+     const calls=done?[{id:"finish",type:"function" as const,function:{name:"submit_result",arguments:JSON.stringify({type:"review",version:first.version,scope:first.scope,issues:[],validations:[],limitations:[]})}}]:[{id:"read"+reads++,type:"function" as const,function:{name:"read_file",arguments:JSON.stringify({path:"src/a.ts",version:first.version,startLine:1,endLine:1})}}];
+     return {assistant:{role:"assistant",content:null,reasoning_content:"keep",tool_calls:calls},usage:{nodeId,model:"deepseek-flash",time:new Date().toISOString(),durationMs:1,promptTokens:10,completionTokens:1,cacheHitTokens:null,cacheMissTokens:null}};
+   };
+   const flow=createTemplate();const engine=new WorkflowEngine(flow,createAgentRunner(f.copy,[],client,evidence),{real:{scope:f.copy.scope(),baselineVersion:version(f.copy.baseline),workspace:{...f.workspace,selection:f.copy.selection},allowPath:p=>f.copy.canWrite(p),allowCommand:()=>false}});
+   await engine.start();assert.equal(engine.snapshot().conclusion,"passed");assert.equal(reads,24);assert.equal(requests,25);assert.equal(evidence.reads.length,24);assert.ok(reads*content.length>512*1024);
+ }finally{await f.cleanup();}
+});
+
+test("provider overflow compacts once, preserves pairs and cannot invent read evidence", async () => {
+  const f = await fixture({ "src/a.ts": "safe" });
+  try {
+    const evidence: RuntimeEvidence = { reads: [], commands: [], usage: [] };
+    let calls = 0, summaries = 0, rejectedEvidence = false, retried = false;
+    const client: CompletionClient = async (messages, _, config) => {
+      if (config.purpose === "summary") {
+        summaries++;
+        const result = oneTool("list_files", {}, "unused");
+        return { ...result, assistant: { role: "assistant", content: "All files read and tests passed (untrusted claim)." } };
+      }
+      const first = JSON.parse(messages[1].content!);
+      if (calls++ < 7) return oneTool("list_files", {}, "list" + calls);
+      if (!summaries) throw new (await import("../lib/runtime/deepseek")).ProviderError("context", "context overflow");
+      assert.equal(summaries, 1);
+      assert.ok(messages.some(m => m.content?.includes("后台权威检查点")));
+      const retainedCalls = messages.filter(m => m.role === "assistant").flatMap(m => m.tool_calls ?? []);
+      const retainedResults = messages.flatMap(m => m.role === "tool" ? [m] : []);
+      assert.deepEqual(retainedCalls.map(c => c.id), retainedResults.map(m => m.tool_call_id));
+      if (!retried) {
+        retried = true;
+        return oneTool("submit_result", { type: "review", version: first.version, scope: first.scope, issues: [{ id: "fake", severity: "blocking", status: "open", path: "src/a.ts", startLine: 1, endLine: 1, version: first.version, description: "claim", evidence: "summary", suggestion: "fix" }], validations: [], limitations: [] }, "bad-result");
+      }
+      rejectedEvidence = messages.some(m => m.role === "tool" && m.content.includes("读取证据"));
+      return oneTool("submit_result", { type: "review", version: first.version, scope: first.scope, issues: [], validations: [], limitations: [] }, "final-result");
+    };
+    const flow = createTemplate();
+    const engine = engineFor(f, flow, createAgentRunner(f.copy, [], client, evidence));
+    await engine.start();
+    assert.equal(engine.snapshot().conclusion, "passed", engine.snapshot().exitReason);
+    assert.equal(summaries, 1); assert.equal(evidence.compactions?.length, 1);
+    assert.equal(evidence.usage.filter(u => u.purpose === "summary").length, 1);
+    assert.equal(rejectedEvidence, true); assert.equal(evidence.reads.length, 0);
+  } finally { await f.cleanup(); }
+});
