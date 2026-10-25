@@ -40,4 +40,6 @@ Status: implemented
 
 ## Verification
 
+2026-10-25 重新执行的检查及当前模板真实证据见[Homework2 验收补齐](2026-10-25-homework-verification.md)，不改变本文的历史测试数量。
+
 `pnpm test` 71 项通过；`pnpm lint`、`pnpm typecheck`、`git diff --check` 通过。HTTP 集成测试及其夹具未修改，本次未重新执行；不将单元测试结果表述为生产 HTTP 或真实模型验收。

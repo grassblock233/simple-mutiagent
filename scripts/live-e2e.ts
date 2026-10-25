@@ -11,6 +11,7 @@ import type { RunState } from '../lib/workflow/schema';
 const require = createRequire(import.meta.url);
 createRequire(require.resolve('next/package.json'))('@next/env').loadEnvConfig(process.cwd());
 const key = process.env.DEEPSEEK_API_KEY;
+const reportDir = path.resolve('docs/examples/reports/current');
 let server: ChildProcess | undefined;
 let root = '', base = '', cookie = '', token = '';
 async function api(route: string, method = 'GET', value?: unknown) {
@@ -19,6 +20,14 @@ async function api(route: string, method = 'GET', value?: unknown) {
   assert.equal(JSON.stringify(data).includes(key!), false, 'API exposed configured key');
   if (!response.ok) throw new Error(`HTTP ${response.status}: ${data.error}`);
   return data;
+}
+async function saveReports(name: string, state: RunState) {
+  for (const format of ['md', 'json']) {
+    const response = await fetch(`${base}/api/runs/${state.id}/report?format=${format}`, { headers: { cookie } });
+    assert.equal(response.status, 200);
+    const text = await response.text(); assert.ok(!text.includes(key!)); assert.ok(!text.includes('reasoning_content'));
+    await writeFile(path.join(reportDir, `${name}.${format}`), text.replaceAll(root, '/tmp/simple-workflow-example'));
+  }
 }
 async function runScenario(name: string, mode: 'confirm' | 'automatic', kind: 'repair' | 'review' | 'reject' | 'persistent') {
   const project = path.join(root, name);
@@ -30,6 +39,9 @@ async function runScenario(name: string, mode: 'confirm' | 'automatic', kind: 'r
   const original = await readFile(path.join(project, kind === 'persistent' ? 'src/provider.mjs' : 'src/math.mjs'), 'utf8');
   const workspace = await api('/api/workspaces', 'POST', { path: project });
   const workflow = createTemplate();
+  assert.equal(workflow.nodes.length, 6, 'verification requires the current six-node template');
+  assert.equal(workflow.edges.length, 6);
+  assert.equal(workflow.nodes.some(node => node.kind === 'loop'), false);
   for (const node of workflow.nodes) if (node.kind === 'review' || node.kind === 'repair' || node.kind === 'rereview') {
     node.config.reasoningEffort = 'low';
     node.config.requireValidation = kind !== 'persistent' && (node.kind === 'rereview' || kind === 'review');
@@ -67,10 +79,17 @@ async function runScenario(name: string, mode: 'confirm' | 'automatic', kind: 'r
       await new Promise(resolve => setTimeout(resolve, 250));
     }
     assert.ok(!['pending','running','awaiting_approval','finalizing'].includes(state.status), 'live run deadline');
+    // Preserve terminal evidence even if an assertion or the provider fails.
+    await saveReports(name, state);
     if (kind === 'reject') { assert.equal(state.conclusion, 'validation_incomplete', state.exitReason); assert.equal(state.applicationStatus, 'not_applied'); }
     else if (kind === 'persistent') { assert.equal(state.conclusion, 'issues_remaining', state.exitReason); assert.equal(state.round, 1); }
     else assert.equal(state.conclusion, 'passed', `${state.exitReason}; ${JSON.stringify(state.records.filter(r => r.error))}`);
     if (kind !== 'persistent') assert.ok(approvals >= 1, 'required test had no approval');
+    const completedAgents = state.records.filter(record => record.status === 'completed' && ['review', 'repair', 'rereview'].includes(record.kind)).map(record => record.kind);
+    assert.deepEqual(completedAgents, kind === 'review' ? ['review'] : ['review', 'repair', 'rereview']);
+    assert.equal(state.round, kind === 'review' ? 0 : 1);
+    if (kind === 'review') assert.equal(state.applicationStatus, 'not_applied');
+    if (kind === 'reject' || kind === 'review') assert.equal(await readFile(path.join(project, 'src/math.mjs'), 'utf8'), original);
     if (kind === 'repair' && mode === 'confirm') {
       assert.equal(state.applicationStatus, 'awaiting_confirmation');
       state = await api(`/api/runs/${state.id}/apply`, 'POST', { version: state.currentVersion });
@@ -84,14 +103,9 @@ async function runScenario(name: string, mode: 'confirm' | 'automatic', kind: 'r
       assert.equal(await readFile(path.join(project,'src/math.mjs'),'utf8'), original);
     }
     if (kind === 'persistent' && state.applicationStatus === 'applied') state = await api(`/api/runs/${state.id}/undo`, 'POST', {});
-    for (const format of ['md', 'json']) {
-      const response = await fetch(`${base}/api/runs/${state.id}/report?format=${format}`, { headers: { cookie } });
-      assert.equal(response.status, 200);
-      const text = await response.text(); assert.ok(!text.includes(key!)); assert.ok(!text.includes('reasoning_content'));
-      await writeFile(path.resolve(`docs/examples/reports/${name}.${format}`), text.replaceAll(root, '/tmp/simple-workflow-example'));
-    }
+    await saveReports(name, state);
     console.log(`${name}: verified ${state.conclusion}, ${state.applicationStatus}, approvals=${approvals}, modelCalls=${state.usage?.length}`);
-    return { name, conclusion: state.conclusion, applicationStatus: state.applicationStatus, approvals, modelCalls: state.usage?.length, readPaths: [...new Set(state.reads?.map(r => r.path))], commandStatuses: state.commands?.map(c => c.status), rounds: state.round };
+    return { name, runId: state.id, conclusion: state.conclusion, applicationStatus: state.applicationStatus, approvals, modelCalls: state.usage?.length, readPaths: [...new Set(state.reads?.map(r => r.path))], commandStatuses: state.commands?.map(c => c.status), rounds: state.round, completedAgents };
   } finally { streamAbort.abort(); await consume; }
 }
 async function main() {
@@ -102,9 +116,16 @@ async function main() {
   server = spawn(process.execPath, ['node_modules/next/dist/bin/next','start','--hostname','127.0.0.1','--port',String(port)], { env: { ...process.env, SIMPLE_WORKFLOW_DATA_DIR: path.join(root,'data') }, stdio:'ignore' });
   for (let i=0;i<100;i++) { try {const response=await fetch(base+'/api/session'); if(response.ok){const data=await response.json();cookie=response.headers.get('set-cookie')!.split(';')[0];token=data.csrfToken;break;}}catch{} await new Promise(r=>setTimeout(r,100)); }
   assert.ok(cookie,'server did not start');
-  await mkdir('docs/examples/reports',{recursive:true});
+  await mkdir(reportDir,{recursive:true});
   const results=[];
-  for (const [name,mode,kind] of [['repairable-confirm','confirm','repair'],['repairable-automatic','automatic','repair'],['review-only','confirm','review'],['reject-validation','automatic','reject'],['round-limit','automatic','persistent']] as const) results.push(await runScenario(name,mode,kind));
-  await writeFile('docs/examples/reports/live-verification.json', JSON.stringify({ date:new Date().toISOString(), backend:'DeepSeek Flash official endpoint; actual local processes and HTTP APIs', isolation:'deferred', results },null,2));
+  const metadata = { backend:'DeepSeek Flash official endpoint; actual local processes and HTTP APIs', template: { name: '单轮修复', nodes: 6, edges: 6, maxRepairRounds: 1 }, configuration: 'Current default topology with scenario-specific prompts, low reasoning effort and explicit validation gates; not untouched default node settings.', isolation:'deferred' };
+  for (const [name,mode,kind] of [['repairable-confirm','confirm','repair'],['repairable-automatic','automatic','repair'],['review-only','confirm','review'],['reject-validation','automatic','reject'],['round-limit','automatic','persistent']] as const) {
+    try { results.push(await runScenario(name,mode,kind)); }
+    catch (error) {
+      await writeFile(path.join(reportDir, 'live-verification.json'), JSON.stringify({ date:new Date().toISOString(), ...metadata, status:'failed', failedScenario:name, error:(error instanceof Error ? error.message : String(error)).replaceAll(key!, '[REDACTED]').replaceAll(root, '/tmp/simple-workflow-example'), results },null,2));
+      throw error;
+    }
+  }
+  await writeFile(path.join(reportDir, 'live-verification.json'), JSON.stringify({ date:new Date().toISOString(), ...metadata, status:'passed', results },null,2));
 }
 main().catch(error=>{console.error(error instanceof Error ? error.message.replaceAll(key ?? '\0','[REDACTED]') : 'live verification failed');process.exitCode=1;}).finally(async()=>{if(server && server.exitCode===null){const stopped=new Promise(r=>server!.once('exit',r));server.kill('SIGTERM');await stopped;} if(root)await rm(root,{recursive:true,force:true});});

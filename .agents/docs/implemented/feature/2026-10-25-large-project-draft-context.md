@@ -61,6 +61,6 @@ POST /api/workspaces 默认保持 JSON；Accept: text/event-stream 返回 progre
 
 ## Verification
 
-[本次验收](../../../../docs/reviews/2026-10-25-implementation/verification.md)记录 93 项单元、14 项 HTTP、lint/类型/构建、四种窗口截图及真实 DeepSeek 聚焦冒烟。大窗口耗尽、高调用次数由确定性夹具验证；实际存储禁用及完整浏览器故障注入未在本轮动态覆盖，不将边界单测表述为浏览器全量通过。
+[2026-10-25 验收记录](../../../../docs/reviews/2026-10-25-implementation/verification.md)提供可访问的检查结果、复现命令及当前默认模板证据。原先引用的验收文件未归档，不能据此核实当时“四种窗口截图及真实 DeepSeek 聚焦冒烟”的声明；本次仅记录实际重新执行的检查，不追补或推断缺失截图。大窗口耗尽、高调用次数由确定性夹具验证；实际存储禁用及完整浏览器故障注入未在本轮动态覆盖，不将边界单测表述为浏览器全量通过。当前报告归属与历史证据边界见[验收补齐记录](../testing/2026-10-25-homework-verification.md)。
 
 官方协议依据（2026-10-25 核对）：https://api-docs.deepseek.com/zh-cn/api/create-chat-completion 、https://api-docs.deepseek.com/zh-cn/quick_start/pricing 、https://api-docs.deepseek.com/zh-cn/guides/thinking_mode/ 。

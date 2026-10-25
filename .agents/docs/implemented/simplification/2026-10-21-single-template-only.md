@@ -31,6 +31,8 @@ Status: implemented
 
 ## Verification
 
+当前六节点真实模型验收与报告归属见[Homework2 验收补齐](../testing/2026-10-25-homework-verification.md)；以下保留当次历史事实。
+
 后续测试精简与当前数量见[测试审查记录](../testing/2026-10-21-test-suite-trimming.md)；以下保留当次验证事实。
 
 `pnpm test` 的 75 项测试、`pnpm lint`、`pnpm typecheck` 通过。浏览器确认欢迎页删除仅审查入口，编辑页只保留“加载默认模板”，加载后显示六节点、六条连线及校验通过。
