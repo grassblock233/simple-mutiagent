@@ -77,56 +77,18 @@ export function createNode(
   }
 }
 
-export function createTemplate(kind: "full" | "review" = "full"): Workflow {
-  const kinds: NodeKind[] =
-    kind === "review"
-      ? ["read", "review", "output"]
-      : [
-          "read",
-          "review",
-          "branch",
-          "repair",
-          "rereview",
-          "branch",
-          "loop",
-          "output",
-        ];
-  const ids =
-    kind === "review"
-      ? ["read", "review", "output"]
-      : [
-          "read",
-          "review",
-          "initial_branch",
-          "repair",
-          "rereview",
-          "final_branch",
-          "loop",
-          "output",
-        ];
-  const positions =
-    kind === "review"
-      ? [
-          [80, 150],
-          [380, 150],
-          [680, 150],
-        ]
-      : [
-          [0, 40],
-          [260, 40],
-          [520, 40],
-          [520, 270],
-          [260, 270],
-          [0, 270],
-          [0, 490],
-          [780, 40],
-        ];
-  const nodes = kinds.map((nodeKind, i) =>
-    createNode(nodeKind, ids[i], ...(positions[i] as [number, number])),
-  );
-  const finalBranch = nodes.find((n) => n.id === "final_branch");
-  if (finalBranch?.kind === "branch")
-    finalBranch.inputs.review.sources = ["rereview"];
+export function createTemplate(): Workflow {
+  const nodes = [
+    createNode("read", "read", 0, 40),
+    createNode("review", "review", 280, 40),
+    createNode("branch", "initial_branch", 560, 40),
+    createNode("repair", "repair", 840, 280),
+    createNode("rereview", "rereview", 1120, 280),
+    createNode("output", "output", 1400, 40),
+  ];
+  nodes[2].label = "有阻塞问题？";
+  const repair = nodes[3];
+  if (repair.kind === "repair") repair.inputs.review.sources = ["review"];
   const edge = (source: string, sourcePort: string, target: string) => ({
     id: `${source}-${sourcePort}-${target}`,
     source,
@@ -134,26 +96,18 @@ export function createTemplate(kind: "full" | "review" = "full"): Workflow {
     target,
     targetPort: "in" as const,
   });
-  const edges =
-    kind === "review"
-      ? [edge("read", "next", "review"), edge("review", "next", "output")]
-      : [
-          edge("read", "next", "review"),
-          edge("review", "next", "initial_branch"),
-          edge("initial_branch", "has_issues", "repair"),
-          edge("initial_branch", "fallback", "output"),
-          edge("repair", "next", "rereview"),
-          edge("rereview", "next", "final_branch"),
-          edge("final_branch", "has_issues", "loop"),
-          edge("final_branch", "fallback", "output"),
-          edge("loop", "continue", "repair"),
-          edge("loop", "exit", "output"),
-        ];
   return {
     formatVersion: 1,
-    name: kind === "review" ? "仅审查" : "审查 · 修复 · 复审",
+    name: "单轮修复",
     nodes,
-    edges,
+    edges: [
+      edge("read", "next", "review"),
+      edge("review", "next", "initial_branch"),
+      edge("initial_branch", "has_issues", "repair"),
+      edge("initial_branch", "fallback", "output"),
+      edge("repair", "next", "rereview"),
+      edge("rereview", "next", "output"),
+    ],
   };
 }
 
@@ -163,4 +117,28 @@ export function outputPorts(node: WorkflowNode): string[] {
   if (node.kind === "branch")
     return [...node.config.conditions.map((c) => c.id), "fallback"];
   return ["next"];
+}
+
+// Translate only the built-in condition; edited/custom conditions retain their IDs.
+export function isDefaultBlockingBranch(node: WorkflowNode | undefined): boolean {
+  if (!node || node.kind !== "branch" || node.config.conditions.length !== 1)
+    return false;
+  const condition = node.config.conditions[0];
+  return (
+    condition.id === "has_issues" &&
+    condition.field === "blockingCount" &&
+    condition.operator === "gt" &&
+    condition.value === 0
+  );
+}
+
+export function outputPortLabel(
+  node: WorkflowNode | undefined,
+  port: string,
+): string {
+  if (isDefaultBlockingBranch(node)) {
+    if (port === "has_issues") return "需要修复";
+    if (port === "fallback") return "直接输出";
+  }
+  return port;
 }

@@ -1,3 +1,4 @@
+import { legacyWorkflow } from "./legacy-workflow-fixture";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
@@ -92,7 +93,13 @@ test("工作流保存原子替换、权限受限、读取再次校验", async ()
       (await readdir(root)).some((f) => f.endsWith(".tmp")),
       false,
     );
-    await storage.saveWorkflow(createTemplate("review"));
+    const advanced = legacyWorkflow("full");
+    advanced.nodes[0].position = { x: -320, y: 520 };
+    const loop = advanced.nodes.find((node) => node.kind === "loop")!;
+    if (loop.kind === "loop") loop.config.maxRounds = 5;
+    await storage.saveWorkflow(advanced);
+    assert.deepEqual(await storage.loadWorkflow(), advanced);
+    await storage.saveWorkflow(legacyWorkflow("review"));
     assert.equal((await storage.loadWorkflow())?.nodes.length, 3);
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -102,7 +109,7 @@ test("持久化：JSONL 顺序、报告、差异和私有基线独立保存并�
   const root = await mkdtemp(path.join(tmpdir(), "workflow-artifacts-"));
   try {
     const storage = new Storage(root);
-    const engine = new WorkflowEngine(createTemplate("review"), async ({ node, state }) => node.kind === "read" ? { type: "material", version: state.currentVersion, paths: state.scope } : { type: "review", version: state.currentVersion, scope: state.scope, issues: [], validations: [], limitations: [] });
+    const engine = new WorkflowEngine(legacyWorkflow("review"), async ({ node, state }) => node.kind === "read" ? { type: "material", version: state.currentVersion, paths: state.scope } : { type: "review", version: state.currentVersion, scope: state.scope, issues: [], validations: [], limitations: [] });
     await engine.start();
     const state = engine.snapshot();
     await storage.saveRun(state);

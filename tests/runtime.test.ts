@@ -1,3 +1,4 @@
+import { legacyWorkflow } from "./legacy-workflow-fixture";
 import { test } from "node:test";
 import { writeFileSync as requireWrite } from "node:fs";
 import assert from "node:assert/strict";
@@ -293,7 +294,7 @@ test("真实 Agent：范围外命令变更立即停止，不能用后续结果�
     let calls = 0;
     const evidence: RuntimeEvidence = { reads: [], commands: [], usage: [] };
     const client: CompletionClient = async messages => { calls++; return oneTool("request_check", { commandIndex: 0, version: JSON.parse((messages[1] as { content: string }).content).version }, "check"); };
-    const engine = engineFor(f, createTemplate("review"), createAgentRunner(f.copy, await availableCommands(f.copy), client, evidence), state => { const a = state.approvals.find(a => a.status === "pending"); if (a) queueMicrotask(() => engine.decideApproval(a.id, a.displayHash, "approved")); });
+    const engine = engineFor(f, legacyWorkflow("review"), createAgentRunner(f.copy, await availableCommands(f.copy), client, evidence), state => { const a = state.approvals.find(a => a.status === "pending"); if (a) queueMicrotask(() => engine.decideApproval(a.id, a.displayHash, "approved")); });
     await engine.start();
     assert.equal(engine.snapshot().conclusion, "execution_failed"); assert.match(engine.snapshot().exitReason!, /范围外/); assert.equal(calls, 1); assert.equal(evidence.commands.length, 1);
   } finally { await f.cleanup(); }
@@ -305,11 +306,11 @@ test("取消真实命令：最终证据保存；节点耗时包含审核等待",
     const allowed = await availableCommands(f.copy);
     const client: CompletionClient = async messages => oneTool("request_check", { commandIndex: 0, version: JSON.parse((messages[1] as { content: string }).content).version }, "check");
     const evidence: RuntimeEvidence = { reads: [], commands: [], usage: [] };
-    const engine = engineFor(f, createTemplate("review"), createAgentRunner(f.copy, allowed, client, evidence), state => { const a = state.approvals.find(a => a.status === "pending"); if (a) queueMicrotask(() => { engine.decideApproval(a.id, a.displayHash, "approved"); setTimeout(() => engine.cancel(), 100); }); });
+    const engine = engineFor(f, legacyWorkflow("review"), createAgentRunner(f.copy, allowed, client, evidence), state => { const a = state.approvals.find(a => a.status === "pending"); if (a) queueMicrotask(() => { engine.decideApproval(a.id, a.displayHash, "approved"); setTimeout(() => engine.cancel(), 100); }); });
     await engine.start(); await evidence.pending;
     engine.captureEvidence({ reads: evidence.reads, commands: evidence.commands, usage: evidence.usage });
     assert.equal(engine.snapshot().conclusion, "cancelled"); assert.equal(engine.snapshot().commands?.[0].status, "cancelled");
-    const timeout = engineFor(f, createTemplate("review"), createAgentRunner(f.copy, allowed, client, { reads: [], commands: [], usage: [] }), undefined, 40);
+    const timeout = engineFor(f, legacyWorkflow("review"), createAgentRunner(f.copy, allowed, client, { reads: [], commands: [], usage: [] }), undefined, 40);
     await timeout.start();
     assert.equal(timeout.snapshot().conclusion, "execution_failed"); assert.match(timeout.snapshot().exitReason!, /耗时预算/); assert.equal(timeout.snapshot().approvals[0].status, "expired");
   } finally { await f.cleanup(); }

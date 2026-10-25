@@ -8,6 +8,8 @@ Status: implemented
 
 ## Decision
 
+默认模板与模板加载的后续变更见[单轮修复默认模板记录](../simplification/2026-10-21-single-repair-default.md)；本文保留原决定的背景及其他边界。
+
 应用在 Linux 上以单用户、单个 Node.js 进程运行 Next.js 本地 WebUI。React Flow 负责编辑与展示，后台严格校验独立版本化格式、串行调度单条活动路径。真实运行使用 DeepSeek 官方稳定端点、按节点独立历史和受校验的工具；修复进入固定文本副本，命令白名单在启动时生成且逐次审核，最终修改由独立文件事务服务应用和撤销。
 
 运行能力、演练删除及最终版本验证见[真实工作流交付修正](../simplification/2026-10-17-real-workflow-only.md)；桌面导航与面板布局见[桌面 IDE 工作台记录](2026-10-18-desktop-workbench.md)，窗口门槛见[移动端视图记录](2026-10-18-mobile-viewport-gate.md)，主题与文案规则见[工作台 UI 记录](2026-10-14-workflow-studio-ui.md)。本文持有授权、快照、应用与审核协议；当前能力不含演练。
@@ -52,7 +54,7 @@ AC-03 验证应用层越界拒绝，AC-08/09 验证本机逐次审核执行，AC
 
 ### 工作区、文件范围与版本
 
-工作区由后台打开真实根目录，返回绑定会话的 UUID；客户端不能用任意路径替代授权标识。数据目录必须与项目分离且不能互相包含。目录浏览不跟随目录符号链接，界面同时支持绝对路径输入。
+工作区由后台打开真实根目录，返回绑定会话的 UUID；客户端不能用任意路径替代授权标识。数据目录必须与项目分离且不能互相包含。目录选择改用系统窗口，界面同时支持绝对路径输入，见 [系统目录选择器](2026-10-21-native-directory-picker.md)。
 
 启动固定勾选项、排除规则、Workflow、模式与全部已复制源码基线。副本复制整个未排除的普通文本上下文，`scope` 是初始勾选文本列表，`selection` 保留目录授权，因此目录内可新增/删除符合规则的文本；单选文件只能修改该文件。关联文件可以读取与搜索，但范围外问题只能给建议，不能提交阻塞修复或补丁。运行中的编辑仅影响下次。
 
@@ -151,7 +153,8 @@ Next.js 使用已安装 16.4.0 的 Route Handlers 及默认 Node runtime，API �
 | 接口 | 操作 |
 | --- | --- |
 | `/api/session` | 本地会话、令牌及真实能力/密钥是否配置 |
-| `/api/workspaces` GET/POST | 目录浏览/登记真实项目与排除规则 |
+| `/api/workspaces` POST | 登记真实项目与排除规则 |
+| `/api/workspaces/pick-directory` POST | 系统目录选择器（会话与 CSRF 校验），取消返回 null |
 | `/api/workflows` GET/PUT、`/validate` POST | 草稿加载/严格保存及图校验 |
 | `/api/runs` POST | 严格配置、固定 scope、请求 ID 幂等创建 |
 | `/api/runs/[id]`、`/events`、`/report` GET | 快照、SSE 顺序事件重放、Markdown/JSON 下载 |

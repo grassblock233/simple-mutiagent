@@ -1,6 +1,17 @@
 "use client";
-import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
-import { outputPorts } from "@/lib/workflow/templates";
+import { useEffect } from "react";
+import {
+  Handle,
+  Position,
+  useUpdateNodeInternals,
+  type Node,
+  type NodeProps,
+} from "@xyflow/react";
+import {
+  isDefaultBlockingBranch,
+  outputPortLabel,
+  outputPorts,
+} from "@/lib/workflow/templates";
 import { type NodeStatus, type WorkflowNode } from "@/lib/workflow/schema";
 import { Icon, nodeIcons, nodeStatusLabels } from "./studio-ui";
 import { cx } from "./studio-styles";
@@ -11,6 +22,13 @@ export type CanvasNode = Node<
 export function WorkflowCard({ data, selected }: NodeProps<CanvasNode>) {
   const { node, status, invalid } = data;
   const ports = outputPorts(node);
+  // Keep the direct path above the repair path on the canvas.
+  if (isDefaultBlockingBranch(node)) ports.reverse();
+  const updateNodeInternals = useUpdateNodeInternals();
+  const portOrder = ports.join("\0");
+  useEffect(() => {
+    updateNodeInternals(node.id);
+  }, [node.id, portOrder, updateNodeInternals]);
   return (
     <div
       className={cx(
@@ -43,12 +61,14 @@ export function WorkflowCard({ data, selected }: NodeProps<CanvasNode>) {
         <div className={cx("node-ports")}>
           {ports.map((port) => (
             <div key={port} className={cx("port-row")}>
-              <span className={cx("port-label")}>{port}</span>
+              <span className={cx("port-label")}>
+                {outputPortLabel(node, port)}
+              </span>
               <Handle
                 type="source"
                 position={Position.Right}
                 id={port}
-                aria-label={`出口 ${port}`}
+                aria-label={`出口 ${outputPortLabel(node, port)}`}
               />
             </div>
           ))}
@@ -60,7 +80,7 @@ export function WorkflowCard({ data, selected }: NodeProps<CanvasNode>) {
             type="source"
             position={Position.Right}
             id={port}
-            aria-label={`出口 ${port}`}
+            aria-label={`出口 ${outputPortLabel(node, port)}`}
           />
         ))
       )}

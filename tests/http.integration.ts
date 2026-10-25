@@ -1,3 +1,4 @@
+import { legacyWorkflow } from "./legacy-workflow-fixture";
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
@@ -283,6 +284,13 @@ test("HTTP：取消幂等，取消后不能审核", async () => {
   );
 });
 
+test("HTTP：系统目录选择要求会话和 CSRF，旧目录枚举入口移除", async () => {
+  assert.equal((await api("/api/workspaces/pick-directory", "POST", {}, { cookie: "" })).response.status, 401);
+  assert.equal((await api("/api/workspaces/pick-directory", "POST", {}, { "x-workflow-csrf": "" })).response.status, 403);
+  assert.equal((await api("/api/workspaces/pick-directory", "POST", { path: 42 })).response.status, 400);
+  assert.equal((await fetch(`${base}/api/workspaces`, { headers: { cookie } })).status, 405);
+});
+
 test("HTTP：目录授权绑定会话；外部路径不能替代工作区标识", async () => {
   const project = await mkdtemp(path.join(tmpdir(), "workflow-http-project-"));
   try {
@@ -436,7 +444,7 @@ test("HTTP：容量满时仍能删除未载入历史，未解决事务仍受保�
   const storage = new Storage(root);
   const states: RunState[] = [];
   for (let i = 0; i < 51; i++) {
-    const state = new WorkflowEngine(createTemplate("review"), async () => null).snapshot();
+    const state = new WorkflowEngine(legacyWorkflow("review"), async () => null).snapshot();
     state.status = "completed";
     state.conclusion = "passed";
     await storage.saveRun(state);

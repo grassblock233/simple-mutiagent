@@ -9,7 +9,7 @@ export function WelcomePanel({
   workspace,
 }: {
   onProject: () => void;
-  onTemplate: (template: "full" | "review") => void;
+  onTemplate: () => void;
   onHistory: () => void;
   onContinue: () => void;
   workspace?: string;
@@ -20,11 +20,7 @@ export function WelcomePanel({
         <div className={cx("welcome-emblem")}>
           <Icon name="workflow" />
         </div>
-        <p className={cx("eyebrow")}>YOUR LOCAL AGENT WORKSPACE</p>
         <h1>Simple Workflow</h1>
-        <p className={cx("welcome-description")}>
-          把审查、修复与复审，连接成你的工作流。
-        </p>
         <div className={cx("welcome-columns")}>
           <div>
             <h2>开始</h2>
@@ -33,14 +29,10 @@ export function WelcomePanel({
               <span>打开本地项目</span>
               <Icon name="arrow-right" />
             </button>
-            <button onClick={() => onTemplate("full")}>
+            <button onClick={onTemplate}>
               <Icon name="workflow" />
-              <span>创建完整流程</span>
-              <small>审查 → 修复 → 复审</small>
-            </button>
-            <button onClick={() => onTemplate("review")}>
-              <Icon name="search" />
-              <span>创建仅审查流程</span>
+              <span>创建单轮修复流程</span>
+              <small>最多修复一次，复审后输出</small>
             </button>
             <button onClick={onHistory}>
               <Icon name="history" />
@@ -49,22 +41,13 @@ export function WelcomePanel({
           </div>
           <div className={cx("welcome-resume")}>
             <h2>工作空间</h2>
-            <p>{workspace ? "当前项目" : "从本地项目开始"}</p>
             <p className={cx("welcome-project")} title={workspace}>
-              {workspace ?? "打开项目，选择文件范围，再连接你的 Agent 节点。"}
+              {workspace ?? "未打开项目"}
             </p>
             <button onClick={onContinue}>
               继续编辑工作流 <Icon name="arrow-right" />
             </button>
           </div>
-        </div>
-        <div className={cx("welcome-footnote")}>
-          <Icon name="layers" />
-          <span>可视化编排</span>
-          <span>·</span>
-          <span>逐次命令审核</span>
-          <span>·</span>
-          <span>差异与运行记录</span>
         </div>
       </div>
     </section>

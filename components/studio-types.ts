@@ -6,11 +6,6 @@ export type Workspace = {
   excludes: string[];
 };
 export type ScopeSelection = { path: string; directory: boolean };
-export type DirectoryBrowse = {
-  root: string;
-  parent: string;
-  directories: { name: string; path: string }[];
-};
 export type HistoryEntry = {
   id: string;
   name: string;

@@ -1,6 +1,12 @@
+import { legacyWorkflow } from "./legacy-workflow-fixture";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createNode, createTemplate } from "../lib/workflow/templates";
+import {
+  createNode,
+  createTemplate,
+  outputPortLabel,
+  outputPorts,
+} from "../lib/workflow/templates";
 import { validateWorkflow } from "../lib/workflow/validate";
 import type { NodeRunner } from "../lib/workflow/engine";
 import { TestWorkflowEngine as WorkflowEngine } from "./engine-fixture";
@@ -88,7 +94,7 @@ function runner(
   };
 }
 function invalid(mutate: (workflow: Workflow) => void, code: string) {
-  const flow = createTemplate();
+  const flow = legacyWorkflow("full");
   mutate(flow);
   assert.ok(
     validateWorkflow(flow).errors.some((error) => error.code === code),
@@ -104,11 +110,26 @@ async function waitUntil(check: () => boolean) {
   throw new Error("等待状态超时");
 }
 
-test("两个默认模板通过完整格式与语义校验", () => {
-  assert.equal(validateWorkflow(createTemplate()).valid, true);
-  assert.equal(validateWorkflow(createTemplate("review")).valid, true);
+test("唯一默认模板为六节点单轮修复，旧工作流仍通过校验", () => {
+  for (const flow of [createTemplate(), legacyWorkflow("full"), legacyWorkflow("review")]) {
+    const result = validateWorkflow(flow);
+    assert.equal(result.valid, true, JSON.stringify(result.errors));
+  }
+  assert.equal(createTemplate().nodes.length, 6);
 });
-test("旧版和额外的权限/密钥字段被拒绝，不静默丢弃", () => {
+test("默认分支只翻译显示文字，端口和自定义条件名称不变", () => {
+  const branch = createNode("branch", "branch");
+  assert.deepEqual(outputPorts(branch), ["has_issues", "fallback"]);
+  assert.equal(outputPortLabel(branch, "has_issues"), "需要修复");
+  assert.equal(outputPortLabel(branch, "fallback"), "直接输出");
+  if (branch.kind !== "branch") throw new Error("expected branch");
+  branch.config.conditions[0].value = 2;
+  assert.equal(outputPortLabel(branch, "has_issues"), "has_issues");
+  assert.equal(outputPortLabel(branch, "fallback"), "fallback");
+  branch.config.conditions[0].id = "自定义条件";
+  assert.equal(outputPortLabel(branch, "自定义条件"), "自定义条件");
+});
+test("工作流格式拒绝旧版、额外字段和非法条件", () => {
   assert.equal(
     validateWorkflow({ ...createTemplate(), formatVersion: 2 }).valid,
     false,
@@ -117,6 +138,17 @@ test("旧版和额外的权限/密钥字段被拒绝，不静默丢弃", () => {
     validateWorkflow({ ...createTemplate(), apiKey: "example" }).valid,
     false,
   );
+  for (const invalid of [
+    { field: "eval" },
+    { operator: "run" },
+    { value: "process.exit()" },
+  ]) {
+    const flow = createTemplate();
+    const branch = flow.nodes.find((node) => node.kind === "branch")!;
+    if (branch.kind !== "branch") throw new Error("expected branch");
+    Object.assign(branch.config.conditions[0], invalid);
+    assert.equal(validateWorkflow(flow).valid, false);
+  }
 });
 test("非法 JSON 结构返回校验错误，不抛异常", () => {
   for (const value of [null, 1, [], { nodes: null }, { nodes: [null] }])
@@ -177,33 +209,6 @@ test("修复必须先复审再输出", () =>
   invalid((w) => {
     w.edges.find((e) => e.source === "repair")!.target = "output";
   }, "repair_review"));
-test("条件字段与操作符实行白名单", () => {
-  const workflow = createTemplate();
-  const branch = workflow.nodes.find((n) => n.kind === "branch")!;
-  assert.equal(
-    validateWorkflow({
-      ...workflow,
-      nodes: workflow.nodes.map((n) =>
-        n === branch
-          ? {
-              ...n,
-              config: {
-                conditions: [
-                  {
-                    id: "execute",
-                    field: "eval",
-                    operator: "run",
-                    value: "process.exit()",
-                  },
-                ],
-              },
-            }
-          : n,
-      ),
-    }).valid,
-    false,
-  );
-});
 test("一轮内修复并复审通过，原输入对象不可变", async () => {
   const flow = createTemplate();
   const calls: string[] = [];
@@ -240,19 +245,19 @@ test("无阻塞问题直接输出，互斥路径标记跳过", async () => {
     "skipped",
   );
 });
-test("仅审查模板不执行修复", async () => {
+test("旧仅审查工作流不执行修复", async () => {
   const calls: string[] = [];
   const engine = new WorkflowEngine(
-    createTemplate("review"),
+    legacyWorkflow("review"),
     runner({ calls }),
   );
   await engine.start();
   assert.equal(engine.snapshot().conclusion, "issues_remaining");
   assert.deepEqual(calls, ["read", "review"]);
 });
-for (const maxRounds of [1, 2, 5])
+for (const maxRounds of [1, 5])
   test(`持续问题严格停止在 ${maxRounds} 轮`, async () => {
-    const flow = createTemplate();
+    const flow = legacyWorkflow("full");
     const loop = flow.nodes.find((n) => n.kind === "loop")!;
     if (loop.kind === "loop") loop.config.maxRounds = maxRounds;
     const calls: string[] = [];
@@ -272,6 +277,36 @@ for (const maxRounds of [1, 2, 5])
     );
     assert.equal(state.issues[0].id, "I-1");
   });
+test("单轮复审仍有阻塞问题时输出并结束，最多执行一次修复", async () => {
+  const calls: string[] = [];
+  const engine = new WorkflowEngine(createTemplate(), runner({ persistent: true, calls }));
+  await engine.start();
+  const state = engine.snapshot();
+  assert.equal(state.conclusion, "issues_remaining");
+  assert.equal(state.round, 1);
+  assert.deepEqual(calls, ["read", "review", "repair", "rereview"]);
+  assert.equal(state.records.at(-1)?.kind, "output");
+  assert.equal(state.issues[0].status, "open");
+  assert.match(markdownReport(state), /仍有问题/);
+});
+test("旧循环工作流修复成功后走退出路径，不用完轮数", async () => {
+  const flow = legacyWorkflow("full");
+  const loop = flow.nodes.find((n) => n.kind === "loop")!;
+  if (loop.kind === "loop") loop.config.maxRounds = 5;
+  const fallback = runner();
+  const calls: string[] = [];
+  const engine = new WorkflowEngine(flow, async ctx => {
+    calls.push(ctx.node.kind);
+    const result = await fallback(ctx);
+    if (ctx.node.kind === "rereview" && ctx.state.round === 1)
+      return review(ctx.state);
+    return result;
+  });
+  await engine.start();
+  assert.equal(engine.snapshot().conclusion, "passed");
+  assert.equal(engine.snapshot().round, 2);
+  assert.equal(calls.filter(kind => kind === "repair").length, 2);
+});
 test("多个条件命中使用第一条，未命中使用兜底", async () => {
   const flow = createTemplate();
   const branch = flow.nodes.find((n) => n.id === "initial_branch")!;
@@ -338,6 +373,18 @@ test("必要验证缺失优先于剩余问题，不进入修复", async () => {
   assert.equal(engine.snapshot().conclusion, "validation_incomplete");
   assert.equal(engine.snapshot().round, 0);
   assert.equal(engine.snapshot().issues.length, 1);
+  assert.deepEqual(calls, ["read", "review"]);
+});
+test("单轮复审缺少必要验证时结束，不再次修复", async () => {
+  const flow = createTemplate();
+  const rereview = flow.nodes.find((n) => n.kind === "rereview")!;
+  if (rereview.kind === "rereview") rereview.config.requireValidation = true;
+  const calls: string[] = [];
+  const engine = new WorkflowEngine(flow, runner({ persistent: true, calls }));
+  await engine.start();
+  assert.equal(engine.snapshot().conclusion, "validation_incomplete");
+  assert.equal(engine.snapshot().round, 1);
+  assert.deepEqual(calls, ["read", "review", "repair", "rereview"]);
 });
 test("复审遗漏原问题保留无法确认，不凭遗漏消除问题", async () => {
   const fallback = runner();
@@ -434,7 +481,7 @@ test("审核等待时取消，所有待定请求过期", async () => {
   assert.equal(engine.snapshot().status, "cancelled");
   assert.equal(engine.snapshot().approvals[0].status, "expired");
 });
-test("取消后迟到结果不更新状态且不能重新启动", async () => {
+test("执行器未返回时取消仍收束，迟到结果不更新状态且不能重新启动", { timeout: 1000 }, async () => {
   let release!: (value: unknown) => void;
   const engine = new WorkflowEngine(
     createTemplate(),
@@ -445,13 +492,16 @@ test("取消后迟到结果不更新状态且不能重新启动", async () => {
   );
   const done = engine.start();
   engine.cancel();
+  await done;
+  assert.equal(engine.snapshot().status, "cancelled");
+  const cancelled = engine.snapshot();
   release({
     type: "material",
     version: "test-v0",
     paths: ["src/math.ts", "src/math.test.ts"],
   });
-  await done;
-  assert.equal(engine.snapshot().status, "cancelled");
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.deepEqual(engine.snapshot(), cancelled);
   assert.equal(engine.snapshot().records[0].status, "cancelled");
   const pending = new WorkflowEngine(createTemplate(), runner());
   pending.cancel();
@@ -500,16 +550,6 @@ test("报告包含轮次、范围、验证限制及独立应用状态", async ()
     "test-v0",
   ])
     assert.ok(report.includes(token));
-});
-test("不响应 AbortSignal 的执行器也不能阻塞取消收束", async () => {
-  const engine = new WorkflowEngine(
-    createTemplate(),
-    async () => new Promise(() => {}),
-  );
-  const done = engine.start();
-  engine.cancel();
-  await done;
-  assert.equal(engine.snapshot().status, "cancelled");
 });
 test("节点结束后的工具请求被拒绝", async () => {
   let late!: (command: CommandSpec) => Promise<string>;

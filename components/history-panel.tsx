@@ -64,8 +64,7 @@ export function HistoryPanel({
         {!history.length && (
           <EmptyState
             icon="history"
-            title="还没有历史记录"
-            description="点击刷新获取记录。"
+            title="暂无运行记录"
           />
         )}
         {history.map((item) => (

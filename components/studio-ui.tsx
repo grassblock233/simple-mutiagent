@@ -75,7 +75,7 @@ export function EmptyState({
 }: {
   icon: IconName;
   title: string;
-  description: string;
+  description?: string;
   action?: ReactNode;
   compact?: boolean;
 }) {

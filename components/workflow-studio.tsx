@@ -21,7 +21,10 @@ import {
   type EdgeChange,
   type NodeChange,
 } from "@xyflow/react";
-import { createTemplate } from "@/lib/workflow/templates";
+import {
+  createTemplate,
+  outputPortLabel,
+} from "@/lib/workflow/templates";
 import {
   workflowSchema,
   type RunState,
@@ -51,7 +54,6 @@ import { PanelResizer } from "./panel-resizer";
 import { WelcomePanel } from "./welcome-panel";
 import type {
   Workspace,
-  DirectoryBrowse,
   ScopeSelection,
   HistoryEntry,
 } from "./studio-types";
@@ -80,6 +82,21 @@ function download(name: string, value: string) {
   link.click();
   URL.revokeObjectURL(url);
 }
+function FitCanvas({ visible }: { visible: boolean }) {
+  const { fitView } = useReactFlow();
+  const initialized = useNodesInitialized();
+  const fitted = useRef(false);
+  useEffect(() => {
+    if (!visible || !initialized || fitted.current) return;
+    const frame = requestAnimationFrame(() => {
+      void fitView({ padding: 0.18 });
+      fitted.current = true;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [visible, initialized, fitView]);
+  return null;
+}
+
 function Studio() {
   const theme = useResolvedTheme();
   const { layout, setLayout, width, height } = useStudioLayout();
@@ -108,9 +125,7 @@ function Studio() {
       })),
     [setLayout],
   );
-  const { fitView } = useReactFlow();
-  const nodesInitialized = useNodesInitialized();
-  const fitted = useRef(false);
+  const [canvasRevision, setCanvasRevision] = useState(0);
   const [workflow, setWorkflow] = useState<Workflow>(() => createTemplate());
   const [selectedId, select] = useState("review");
   const [selectedEdge, selectEdge] = useState<string>();
@@ -125,7 +140,6 @@ function Studio() {
   const [workspace, setWorkspace] = useState<Workspace>();
   const [selection, setSelection] = useState<ScopeSelection[]>([]);
   const [excludes, setExcludes] = useState<string>();
-  const [browse, setBrowse] = useState<DirectoryBrowse>();
   const [run, setRun] = useState<RunState>();
   const [repairMode, setRepairMode] = useState<"confirm" | "automatic">(
     "confirm",
@@ -138,14 +152,6 @@ function Studio() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [noticeError, setNoticeError] = useState(false);
   const leftRef = useRef<HTMLElement>(null);
-  useEffect(() => {
-    if (page !== "editor" || !nodesInitialized || fitted.current) return;
-    const frame = requestAnimationFrame(() => {
-      fitView({ padding: 0.18 });
-      fitted.current = true;
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [page, nodesInitialized, fitView]);
   const importRef = useRef<HTMLInputElement>(null);
   const validation = useMemo(() => validateWorkflow(workflow), [workflow]);
   const selected = workflow.nodes.find((n) => n.id === selectedId);
@@ -366,7 +372,13 @@ function Studio() {
     targetHandle: "in",
     type: "smoothstep",
     selected: selectedEdge === edge.id,
-    label: edge.sourcePort === "next" ? undefined : edge.sourcePort,
+    label:
+      edge.sourcePort === "next"
+        ? undefined
+        : outputPortLabel(
+            workflow.nodes.find((node) => node.id === edge.source),
+            edge.sourcePort,
+          ),
     markerEnd: { type: MarkerType.ArrowClosed },
     style: {
       stroke:
@@ -411,14 +423,19 @@ function Studio() {
       leftRef.current?.querySelector<HTMLInputElement>("input")?.focus(),
     );
   }
-  function loadTemplate(template: "full" | "review") {
-    setWorkflow(createTemplate(template));
-    select("review");
+  function replaceWorkflow(next: Workflow, selected = next.nodes[0].id) {
+    setWorkflow(next);
+    select(selected);
     selectEdge(undefined);
+    setMeasurements({});
+    // A fresh store also discards React Flow's internal dimensions for reused IDs.
+    setCanvasRevision((revision) => revision + 1);
+  }
+  function loadTemplate() {
+    replaceWorkflow(createTemplate(), "review");
     setSettingsOpen(false);
     setPage("editor");
     setRightOpen(true);
-    fitted.current = false;
   }
   function resource(tab: "workspace" | "nodes") {
     setLeftOpen(page === "editor" && leftTab === tab ? !leftOpen : true);
@@ -580,8 +597,6 @@ function Studio() {
             setSelection={setSelection}
             excludes={excludes}
             setExcludes={setExcludes}
-            browse={browse}
-            setBrowse={setBrowse}
             workflow={workflow}
             setWorkflow={setWorkflow}
             select={select}
@@ -627,7 +642,6 @@ function Studio() {
             >
               <div className={cx("canvas-toolbar")}>
                 <div>
-                  <span className={cx("eyebrow")}>WORKFLOW</span>
                   <input
                     className={cx("workflow-name")}
                     aria-label="工作流名称"
@@ -638,26 +652,7 @@ function Studio() {
                   />
                 </div>
                 <div className={cx("toolbar-buttons canvas-actions")}>
-                  <select
-                    aria-label="加载默认模板"
-                    defaultValue=""
-                    onChange={(e) => {
-                      if (e.target.value) {
-                        setWorkflow(
-                          createTemplate(e.target.value as "full" | "review"),
-                        );
-                        select("review");
-                        selectEdge(undefined);
-                      }
-                      e.target.value = "";
-                    }}
-                  >
-                    <option value="" disabled>
-                      默认模板
-                    </option>
-                    <option value="full">完整流程</option>
-                    <option value="review">仅审查</option>
-                  </select>
+                  <button onClick={loadTemplate}>加载默认模板</button>
                   <button
                     disabled={!csrf || busy || !validation.valid}
                     onClick={() =>
@@ -677,8 +672,7 @@ function Studio() {
                           "/api/workflows",
                         );
                         if (result.workflow) {
-                          setWorkflow(result.workflow);
-                          select(result.workflow.nodes[0].id);
+                          replaceWorkflow(result.workflow);
                           setNotice("已加载保存的工作流。");
                         } else setNotice("尚无已保存工作流。");
                       })
@@ -720,8 +714,7 @@ function Studio() {
                               .map((error) => error.message)
                               .join("；"),
                           );
-                        setWorkflow(parsed.workflow!);
-                        select(parsed.workflow!.nodes[0].id);
+                        replaceWorkflow(parsed.workflow!);
                         setNotice("工作流已导入。");
                       });
                       e.target.value = "";
@@ -730,36 +723,38 @@ function Studio() {
                 </div>
               </div>
               <div className={cx("canvas")}>
-                <ReactFlow
-                  nodes={nodes}
-                  edges={edges}
-                  nodeTypes={nodeTypes}
-                  onNodesChange={nodeChanges}
-                  onEdgesChange={edgeChanges}
-                  onConnect={connect}
-                  onNodeClick={(_, node) => {
-                    select(node.id);
-                    selectEdge(undefined);
-                    setSettingsOpen(false);
-                    setRightOpen(true);
-                  }}
-                  onEdgeClick={(_, edge) => selectEdge(edge.id)}
-                  fitView
-                  minZoom={0.2}
-                  maxZoom={1.5}
-                  colorMode={theme}
-                  ariaLabelConfig={canvasLabels}
-                  aria-label="工作流画布"
-                >
-                  <Background color="var(--canvas-dot)" gap={22} size={1} />
-                  <Controls showInteractive={false} />
-                  <MiniMap
-                    pannable
-                    zoomable
-                    nodeColor="var(--minimap-node)"
-                    maskColor="var(--minimap-mask)"
-                  />
-                </ReactFlow>
+                <ReactFlowProvider key={canvasRevision}>
+                  <ReactFlow
+                    nodes={nodes}
+                    edges={edges}
+                    nodeTypes={nodeTypes}
+                    onNodesChange={nodeChanges}
+                    onEdgesChange={edgeChanges}
+                    onConnect={connect}
+                    onNodeClick={(_, node) => {
+                      select(node.id);
+                      selectEdge(undefined);
+                      setSettingsOpen(false);
+                      setRightOpen(true);
+                    }}
+                    onEdgeClick={(_, edge) => selectEdge(edge.id)}
+                    minZoom={0.2}
+                    maxZoom={1.5}
+                    colorMode={theme}
+                    ariaLabelConfig={canvasLabels}
+                    aria-label="工作流画布"
+                  >
+                    <FitCanvas visible={page === "editor"} />
+                    <Background color="var(--canvas-dot)" gap={22} size={1} />
+                    <Controls showInteractive={false} />
+                    <MiniMap
+                      pannable
+                      zoomable
+                      nodeColor="var(--minimap-node)"
+                      maskColor="var(--minimap-mask)"
+                    />
+                  </ReactFlow>
+                </ReactFlowProvider>
               </div>
               <div
                 className={cx(
@@ -972,9 +967,5 @@ function Studio() {
   );
 }
 export default function WorkflowStudio() {
-  return (
-    <ReactFlowProvider>
-      <Studio />
-    </ReactFlowProvider>
-  );
+  return <Studio />;
 }

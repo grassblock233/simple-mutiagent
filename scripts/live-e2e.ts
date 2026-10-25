@@ -29,7 +29,7 @@ async function runScenario(name: string, mode: 'confirm' | 'automatic', kind: 'r
   }
   const original = await readFile(path.join(project, kind === 'persistent' ? 'src/provider.mjs' : 'src/math.mjs'), 'utf8');
   const workspace = await api('/api/workspaces', 'POST', { path: project });
-  const workflow = createTemplate(kind === 'review' ? 'review' : 'full');
+  const workflow = createTemplate();
   for (const node of workflow.nodes) if (node.kind === 'review' || node.kind === 'repair' || node.kind === 'rereview') {
     node.config.reasoningEffort = 'low';
     node.config.requireValidation = kind !== 'persistent' && (node.kind === 'rereview' || kind === 'review');

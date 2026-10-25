@@ -287,23 +287,6 @@
   font-family: monospace;
   margin-bottom: 8px;
 }
-.directory-browser {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  padding: 6px;
-  max-height: 240px;
-  overflow-y: auto;
-}
-.directory-browser button {
-  justify-content: flex-start;
-  border-color: transparent;
-  overflow-wrap: anywhere;
-  white-space: normal;
-  text-align: left;
-}
 .file-tree {
   background: var(--surface);
   border: 1px solid var(--line);
@@ -1106,12 +1089,7 @@
   font-size: 36px;
   font-weight: 500;
   letter-spacing: -1.2px;
-  margin: 8px 0;
-}
-.welcome-description {
-  font-size: 14px;
-  color: var(--muted);
-  margin-bottom: 36px;
+  margin: 8px 0 24px;
 }
 .welcome-columns {
   display: grid;
@@ -1162,18 +1140,6 @@
   margin: 8px 0 18px;
   font-size: 11px;
   overflow-wrap: anywhere;
-}
-.welcome-footnote {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  color: var(--muted);
-  font-size: 10px;
-  padding-top: 45px;
-}
-.welcome-footnote svg {
-  width: 14px;
-  height: 14px;
 }
 .project-tree,
 .project-tree ul {

@@ -186,8 +186,7 @@ export function ExecutionPanel({
         {run?.conclusion && (
           <div className={cx(`conclusion conclusion-${run.conclusion}`)}>
             <strong>
-              {conclusions[run.conclusion]} ·{" "}
-              真实运行
+              {conclusions[run.conclusion]}
             </strong>
             <span>{run.exitReason}</span>
             <span>
@@ -201,7 +200,6 @@ export function ExecutionPanel({
             <EmptyState
               icon="play"
               title="尚未运行"
-              description="在运行设置中启动工作流。"
               action={
                 <button className={cx("primary")} onClick={onSettings}>
                   <Icon name="play" />
@@ -215,7 +213,6 @@ export function ExecutionPanel({
                 <EmptyState
                   icon="activity"
                   title="等待执行事件"
-                  description=""
                   compact
                 />
               )}

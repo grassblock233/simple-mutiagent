@@ -53,7 +53,7 @@ export function RunSettings({
         </button>
         {!modelConfigured && (
           <p className={cx("help")}>
-            在 .env.local 中配置 DEEPSEEK_API_KEY 并重启服务后可启动真实运行。
+            在 .env.local 中配置 DEEPSEEK_API_KEY 后重启服务。
           </p>
         )}
       </div>

@@ -8,6 +8,8 @@ Status: implemented
 
 ## Decision
 
+默认模板与模板加载的后续变更见[单轮修复默认模板记录](../simplification/2026-10-21-single-repair-default.md)；本文保留原决定的背景及其他边界。
+
 工作台的主题偏好、单一 SSE 订阅、审核边界与界面文案规则以本文为准；布局、响应式与移动端支持见[桌面工作台记录](2026-10-18-desktop-workbench.md)和[移动端视图记录](2026-10-18-mobile-viewport-gate.md)。
 
 运行设置仅提供真实工作流，启动要求密钥、工作区和文件范围；运行入口见[真实工作流交付修正](../simplification/2026-10-17-real-workflow-only.md)。

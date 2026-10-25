@@ -18,7 +18,7 @@ export function ApprovalPanel({ run, setRun, busy, action, api }: Props) {
         <section className={cx("approval-box")} aria-label="等待命令审核">
           <div>
             <strong>
-              命令待审核 · 真实运行
+              命令待审核
             </strong>
             <code>
               {approval.executable} {JSON.stringify(approval.args)}

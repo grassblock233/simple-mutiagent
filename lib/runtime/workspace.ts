@@ -1,17 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readdir, realpath, lstat, chmod } from "node:fs/promises";
-import path from "node:path";
+import { mkdir, realpath, lstat, chmod } from "node:fs/promises";
 import { SafeRoot, allowed, DEFAULT_EXCLUDES, differences, scan, version, within, relative, LIMITS, type Manifest, type Selection, type Change } from "./files";
 
 export type Workspace = { id: string; root: string; excludes: string[]; files: string[] };
 export class WorkspaceRegistry {
   private entries = new Map<string, { owner: string; workspace: Workspace }>();
   constructor(readonly dataRoot: string) {}
-  async browse(directory: string) {
-    const root = await realpath(directory);
-    const items = await readdir(root, { withFileTypes: true });
-    return { root, parent: path.dirname(root), directories: items.filter(i => i.isDirectory() && !i.isSymbolicLink() && !i.name.startsWith(".")).slice(0, 500).map(i => ({ name: i.name, path: path.join(root, i.name) })) };
-  }
   async open(directory: string, owner: string, excludes = DEFAULT_EXCLUDES): Promise<Workspace> {
     const root = await realpath(directory);
     await mkdir(this.dataRoot, { recursive: true, mode: 0o700 });

@@ -166,7 +166,7 @@ export function NodeConfig({
             </div>
           ))}
           <p className={cx("help")}>
-            在下方 JSON 中编辑条件。
+            通过 JSON 编辑条件
           </p>
         </>
       )}

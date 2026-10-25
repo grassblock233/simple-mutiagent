@@ -8,7 +8,6 @@ import { labels, nodeKinds, type Workflow } from "@/lib/workflow/schema";
 import type {
   StudioActions,
   Workspace,
-  DirectoryBrowse,
   ScopeSelection,
 } from "./studio-types";
 type Setter<T> = Dispatch<SetStateAction<T>>;
@@ -24,8 +23,6 @@ type Props = StudioActions & {
   setSelection: Setter<ScopeSelection[]>;
   excludes?: string;
   setExcludes: Setter<string | undefined>;
-  browse?: DirectoryBrowse;
-  setBrowse: Setter<DirectoryBrowse | undefined>;
   workflow: Workflow;
   setWorkflow: Setter<Workflow>;
   select: Setter<string>;
@@ -43,8 +40,6 @@ export function WorkspacePanel({
   setSelection,
   excludes,
   setExcludes,
-  browse,
-  setBrowse,
   workflow,
   setWorkflow,
   select,
@@ -98,11 +93,10 @@ export function WorkspacePanel({
             disabled={busy || !csrf}
             onClick={() =>
               action(async () => {
-                setBrowse(
-                  await api<DirectoryBrowse>(
-                    `/api/workspaces?path=${encodeURIComponent(workspacePath)}`,
-                  ),
+                const result = await api<{ path: string | null }>(
+                  "/api/workspaces/pick-directory", "POST", { path: workspacePath },
                 );
+                if (result.path !== null) setWorkspacePath(result.path);
               })
             }
           >
@@ -134,49 +128,6 @@ export function WorkspacePanel({
             打开项目
           </button>
         </div>
-        {browse && (
-          <div className={cx("directory-browser")}>
-            <button
-              onClick={() =>
-                action(async () => {
-                  setWorkspacePath(browse.parent);
-                  setBrowse(
-                    await api<DirectoryBrowse>(
-                      `/api/workspaces?path=${encodeURIComponent(browse.parent)}`,
-                    ),
-                  );
-                })
-              }
-            >
-              ↑ 上级目录
-            </button>
-            <button
-              onClick={() => {
-                setWorkspacePath(browse.root);
-                setBrowse(undefined);
-              }}
-            >
-              选择此目录
-            </button>
-            {browse.directories.map((d) => (
-              <button
-                key={d.path}
-                onClick={() =>
-                  action(async () => {
-                    setWorkspacePath(d.path);
-                    setBrowse(
-                      await api<DirectoryBrowse>(
-                        `/api/workspaces?path=${encodeURIComponent(d.path)}`,
-                      ),
-                    );
-                  })
-                }
-              >
-                ▸ {d.name}
-              </button>
-            ))}
-          </div>
-        )}
         <details>
           <summary>排除规则</summary>
           <textarea
@@ -204,8 +155,7 @@ export function WorkspacePanel({
         ) : (
           <EmptyState
             icon="folder"
-            title="连接你的项目"
-            description="打开项目后选择文件或目录。"
+            title="未打开项目"
             compact
           />
         )}
